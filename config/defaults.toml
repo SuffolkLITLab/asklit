@@ -2,6 +2,7 @@
 title = "AskLit"
 welcome_message = "Welcome! How can I help you today?"
 access_mode = "public" # public, password, admin-only
+disable_admin = false
 
 [model]
 provider = "openai"

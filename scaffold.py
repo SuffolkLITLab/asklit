@@ -132,6 +132,7 @@ def main():
         st.subheader("Basic Information")
         st.session_state.app_config["app"]["title"] = st.text_input("App Title", st.session_state.app_config["app"]["title"])
         st.session_state.app_config["app"]["welcome_message"] = st.text_area("Welcome Message", st.session_state.app_config["app"]["welcome_message"])
+        st.session_state.app_config["app"]["disable_admin"] = st.checkbox("Disable Admin Backend", st.session_state.app_config["app"].get("disable_admin", False), help="Hide all management and setup pages in the deployed app.")
         
         st.subheader("AI Personality")
         # System Prompt

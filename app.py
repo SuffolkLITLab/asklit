@@ -43,20 +43,21 @@ logout_page = st.Page(logout, title="Logout", icon="🚪")
 # We use a secret route name from secrets to "unlock" the admin login page
 # Example: If ADMIN_ROUTE = "manage", visiting /?manage will show the login page
 admin_route = st.secrets.get("ADMIN_ROUTE", "admin-login")
+disable_admin = str(get_setting("app.disable_admin", "false")).lower() == "true"
 
-if admin_route in st.query_params:
+if admin_route in st.query_params and not disable_admin:
     st.session_state["admin_unlocked"] = True
     # We don't clear it immediately to ensure the initial load captures it
     # but we can set a flag.
 
-if st.session_state.get("is_admin_authenticated"):
+if st.session_state.get("is_admin_authenticated") and not disable_admin:
     # Admin View: Show everything
     pg = st.navigation({
         "Public": [chat_page, scaffold_page],
         "Admin Management": [admin_settings, admin_kb, admin_logs, admin_hash_tool],
         "Account": [logout_page]
     })
-elif st.session_state.get("admin_unlocked"):
+elif st.session_state.get("admin_unlocked") and not disable_admin:
     # Hidden Login View: Show Chat + Login + Setup Tools
     pg = st.navigation({
         "Chat": [chat_page, scaffold_page],

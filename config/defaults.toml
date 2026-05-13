@@ -1,0 +1,36 @@
+[app]
+title = "AskLit"
+welcome_message = "Welcome! How can I help you today?"
+access_mode = "public" # public, password, admin-only
+
+[model]
+provider = "openai"
+name = "gpt-5-nano"
+temperature = 1.0
+disable_temperature = false
+local_embedding_model = "all-MiniLM-L6-v2"
+use_local_embeddings = true
+max_tokens = 4000
+reasoning_effort = "low"
+
+[retrieval]
+top_k = 5
+show_citations = true
+
+[limits]
+daily_request_limit = 100
+daily_token_limit = 50000
+max_conversation_turns = 10
+max_upload_size_mb = 10
+max_prompt_length = 2000
+
+[logging]
+enabled = true
+
+[branding]
+favicon_url = "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-favicon.png"
+logo_url = "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png"
+logo_width = 200
+homepage_url = "https://suffolklitlab.org"
+supplemental_footer_text = ""
+hide_asklit_badge = false

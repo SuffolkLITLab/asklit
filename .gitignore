@@ -1,0 +1,9 @@
+__pycache__/
+.streamlit/secrets.toml
+# Data is now tracked for GitHub-based knowledge base persistence
+# !data/uploads/.gitkeep
+# !data/chroma/.gitkeep
+.env
+.DS_Store
+*.pyc
+.streamlit/secrets.toml

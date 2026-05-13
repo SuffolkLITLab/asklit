@@ -27,6 +27,7 @@ Before you start, make sure you have:
     *   *(Insert Screenshot: Scaffolder Step 3)*
 5.  **Export & Deploy:** 
     *   **Connect GitHub:** Click the button to authorize AskLit to create a repo for you.
+    *   **Secrets Generator:** Copy the pre-formatted TOML block from the "Deployment Secrets" box. Use the built-in **Password Hasher** if you need to set a password.
     *   **Push:** Click "Create Repo & Push". This creates a private repository on your account with all your settings and documents pre-indexed.
 
 ---

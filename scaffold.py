@@ -132,6 +132,14 @@ def main():
         st.subheader("Basic Information")
         st.session_state.app_config["app"]["title"] = st.text_input("App Title", st.session_state.app_config["app"]["title"])
         st.session_state.app_config["app"]["welcome_message"] = st.text_area("Welcome Message", st.session_state.app_config["app"]["welcome_message"])
+        
+        st.subheader("Access Control")
+        access_mode = st.selectbox("Who can access the chat?", ["Public", "Password Protected"], index=0 if st.session_state.app_config["app"]["access_mode"] == "public" else 1)
+        st.session_state.app_config["app"]["access_mode"] = "public" if access_mode == "Public" else "password"
+        
+        if st.session_state.app_config["app"]["access_mode"] == "password":
+            st.info("Since you chose 'Password Protected', you will need to set a SHA-256 password hash in your secrets later. We will help you generate this in the final step.")
+
         st.session_state.app_config["app"]["disable_admin"] = st.checkbox("Disable Admin Backend", st.session_state.app_config["app"].get("disable_admin", False), help="Hide all management and setup pages in the deployed app.")
         
         st.subheader("AI Personality")
@@ -238,6 +246,40 @@ def main():
     elif step == "4. Export":
         st.header("Step 4: Export your Project")
         
+        # 1. Configuration Generator
+        with st.expander("📋 Deployment Secrets (Copy this!)", expanded=True):
+            st.markdown("Paste the following into your **Streamlit Cloud > Settings > Secrets** panel:")
+            
+            # Generate the secrets TOML
+            secrets_toml = f"# AskLit Deployment Secrets\n"
+            secrets_toml += f"{st.session_state.app_config['model']['provider'].upper()}_API_KEY = \"PASTE_YOUR_KEY_HERE\"\n\n"
+            
+            secrets_toml += f"# Identity & Access\n"
+            secrets_toml += f"ADMIN_ROUTE = \"manage\"\n"
+            if not st.session_state.app_config["app"].get("disable_admin"):
+                secrets_toml += f"ADMIN_PASSWORD_HASH = \"PASTE_ADMIN_HASH_HERE\"\n"
+            
+            if st.session_state.app_config["app"]["access_mode"] == "password":
+                secrets_toml += f"SHARED_PASSWORD_HASH = \"PASTE_SHARED_HASH_HERE\"\n"
+            
+            secrets_toml += f"\n# App Overrides\n"
+            secrets_toml += f"\"app.title\" = \"{st.session_state.app_config['app']['title']}\"\n"
+            secrets_toml += f"\"app.access_mode\" = \"{st.session_state.app_config['app']['access_mode']}\"\n"
+            secrets_toml += f"\"app.disable_admin\" = {str(st.session_state.app_config['app'].get('disable_admin', False)).lower()}\n"
+            
+            st.code(secrets_toml, language="toml")
+            
+            if st.session_state.app_config["app"]["access_mode"] == "password" or not st.session_state.app_config["app"].get("disable_admin"):
+                st.subheader("🔑 Password Hasher")
+                st.write("Need a hash? Type a password here and copy the result:")
+                raw_pwd = st.text_input("Raw Password", type="password", key="scaffold_hasher")
+                if raw_pwd:
+                    import hashlib
+                    h = hashlib.sha256(raw_pwd.encode()).hexdigest()
+                    st.code(h)
+                    st.caption("Copy this hash into your secrets above.")
+
+        st.divider()
         repo_name = st.text_input("Repository Name", DEFAULT_REPO_NAME)
         
         col1, col2 = st.columns(2)

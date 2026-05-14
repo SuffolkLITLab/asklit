@@ -33,7 +33,10 @@ def check_prompt_length(prompt):
         return True, ""
 
     if len(prompt) > max_length:
-        return False, f"Please shorten your message to {max_length} characters or fewer."
+        return (
+            False,
+            f"Please shorten your message to {max_length} characters or fewer.",
+        )
 
     return True, ""
 
@@ -61,18 +64,20 @@ def check_rate_limits(identifier):
     daily_token_limit = get_int_setting("limits.daily_token_limit", 50000)
     if daily_token_limit > 0 and st.session_state["token_count"] >= daily_token_limit:
         return False, f"Daily token budget of about {daily_token_limit} tokens reached."
-    
+
     return True, ""
+
 
 def log_rate_limit_event(identifier, event_type):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT INTO rate_limit_events (identifier, event_type) VALUES (?, ?)",
-        (identifier, event_type)
+        (identifier, event_type),
     )
     conn.commit()
     conn.close()
+
 
 def increment_usage(identifier, tokens=0):
     st.session_state["request_count"] += 1

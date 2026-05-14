@@ -15,11 +15,13 @@ def test_chunk_text_keeps_words_intact_at_boundaries():
 
 def test_chunk_text_prefers_paragraph_boundaries():
     case = unittest.TestCase()
-    text = "\n\n".join([
-        "First paragraph has a complete thought.",
-        "Second paragraph should stay together.",
-        "Third paragraph also stays together.",
-    ])
+    text = "\n\n".join(
+        [
+            "First paragraph has a complete thought.",
+            "Second paragraph should stay together.",
+            "Third paragraph also stays together.",
+        ]
+    )
 
     chunks = chunk_text(text, target_size=40, max_size=90)
 

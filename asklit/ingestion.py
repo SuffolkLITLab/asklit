@@ -6,8 +6,10 @@ import docx2txt
 from bs4 import BeautifulSoup
 import markdown
 
+
 def get_content_hash(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def extract_text_from_pdf(file_path):
     reader = PdfReader(file_path)
@@ -19,33 +21,38 @@ def extract_text_from_pdf(file_path):
         pages.append({"text": page_text, "page_number": i + 1})
     return text, pages
 
+
 def extract_text_from_docx(file_path):
     text = docx2txt.process(file_path)
     return text, [{"text": text, "page_number": 1}]
 
+
 def extract_text_from_html(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
-        soup = BeautifulSoup(f, 'html.parser')
-        text = soup.get_text(separator='\n')
+    with open(file_path, "r", encoding="utf-8") as f:
+        soup = BeautifulSoup(f, "html.parser")
+        text = soup.get_text(separator="\n")
     return text, [{"text": text, "page_number": 1}]
 
+
 def extract_text_from_txt(file_path):
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, "r", encoding="utf-8") as f:
         text = f.read()
     return text, [{"text": text, "page_number": 1}]
 
+
 def extract_text(file_path):
     ext = os.path.splitext(file_path)[1].lower()
-    if ext == '.pdf':
+    if ext == ".pdf":
         return extract_text_from_pdf(file_path)
-    elif ext == '.docx':
+    elif ext == ".docx":
         return extract_text_from_docx(file_path)
-    elif ext in ['.html', '.htm']:
+    elif ext in [".html", ".htm"]:
         return extract_text_from_html(file_path)
-    elif ext in ['.txt', '.md']:
+    elif ext in [".txt", ".md"]:
         return extract_text_from_txt(file_path)
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
+
 
 def normalize_text(text):
     text = text or ""
@@ -163,18 +170,21 @@ def chunk_text(text, target_size=3000, max_size=5000):
 
     return chunks
 
+
 def chunk_pages(pages, target_size=3000, max_size=5000):
     all_chunks = []
     global_chunk_index = 0
     for page in pages:
-        page_text = page['text']
-        page_num = page['page_number']
+        page_text = page["text"]
+        page_num = page["page_number"]
         page_chunks = chunk_text(page_text, target_size, max_size)
         for chunk in page_chunks:
-            all_chunks.append({
-                "content": chunk,
-                "page_number": page_num,
-                "chunk_index": global_chunk_index
-            })
+            all_chunks.append(
+                {
+                    "content": chunk,
+                    "page_number": page_num,
+                    "chunk_index": global_chunk_index,
+                }
+            )
             global_chunk_index += 1
     return all_chunks

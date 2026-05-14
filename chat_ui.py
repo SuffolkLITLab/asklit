@@ -22,8 +22,19 @@ from asklit.ui import escape_html, safe_url
 # )
 
 CASUAL_PATTERNS = {
-    "hi", "hi!", "hello", "hello!", "hey", "hey!", "thanks", "thank you",
-    "ok", "okay", "yes", "no", "cool"
+    "hi",
+    "hi!",
+    "hello",
+    "hello!",
+    "hey",
+    "hey!",
+    "thanks",
+    "thank you",
+    "ok",
+    "okay",
+    "yes",
+    "no",
+    "cool",
 }
 
 
@@ -204,14 +215,16 @@ def main():
             )
         else:
             st.sidebar.image(logo_url, width=logo_width)
-    
+
     st.sidebar.divider()
 
     st.title(get_setting("app.title", "AskLit"))
-    
+
     if "messages" not in st.session_state:
         st.session_state.messages = []
-        welcome = get_setting("app.welcome_message", "Welcome! How can I help you today?")
+        welcome = get_setting(
+            "app.welcome_message", "Welcome! How can I help you today?"
+        )
         st.session_state.messages.append({"role": "assistant", "content": welcome})
 
     if "conversation_id" not in st.session_state:
@@ -260,56 +273,76 @@ def main():
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT count(*) as count FROM documents")
-            doc_count = cursor.fetchone()['count']
+            doc_count = cursor.fetchone()["count"]
             conn.close()
-            
+
             if doc_count > 0 and should_search_knowledge_base(prompt):
                 with st.status("Searching knowledge base...", expanded=False) as status:
                     from asklit.rag import get_collection
+
                     collection = get_collection()
                     if collection.count() > 0:
                         context_chunks = query_index(prompt)
-                    status.update(label="Search complete!", state="complete", expanded=False)
+                    status.update(
+                        label="Search complete!", state="complete", expanded=False
+                    )
         except Exception as e:
             # Show error if in admin mode, otherwise ignore
             if st.session_state.get("is_admin_authenticated"):
                 st.error(f"DEBUG: Knowledge base search failed: {str(e)}")
 
         # Build messages
-        messages = build_messages(prompt, context_chunks, st.session_state.messages[:-1])
+        messages = build_messages(
+            prompt, context_chunks, st.session_state.messages[:-1]
+        )
 
         # Call LLM
         with st.chat_message("assistant"):
             if st.session_state.get("is_admin_authenticated"):
-                st.caption(f"Using model: {get_setting('model.name')} via {get_setting('model.provider')}")
+                st.caption(
+                    f"Using model: {get_setting('model.name')} via {get_setting('model.provider')}"
+                )
 
             response_placeholder = st.empty()
             full_response = ""
-            
+
             try:
                 render_waiting_indicator(response_placeholder)
                 response = call_llm(messages)
-                full_response, finish_reasons = stream_response(response, response_placeholder)
+                full_response, finish_reasons = stream_response(
+                    response, response_placeholder
+                )
 
                 if not full_response and "length" in finish_reasons:
-                    retry_tokens = max(int(get_setting("model.max_tokens", 1000)) * 2, 2000)
+                    retry_tokens = max(
+                        int(get_setting("model.max_tokens", 1000)) * 2, 2000
+                    )
                     response = call_llm(messages, max_tokens_override=retry_tokens)
-                    full_response, finish_reasons = stream_response(response, response_placeholder)
-                
+                    full_response, finish_reasons = stream_response(
+                        response, response_placeholder
+                    )
+
                 if not full_response:
                     full_response = "The model returned an empty response. This can happen if the model name is incorrect or if the context is too large."
-                
+
                 response_placeholder.markdown(full_response)
-                
+
                 # Show citations if enabled
-                if get_setting("retrieval.show_citations", "true") == "true" and context_chunks:
+                if (
+                    get_setting("retrieval.show_citations", "true") == "true"
+                    and context_chunks
+                ):
                     render_citations(context_chunks)
 
             except Exception as e:
                 st.error(f"Error calling LLM: {str(e)}")
-                full_response = "I'm sorry, I encountered an error. Please try again later."
+                full_response = (
+                    "I'm sorry, I encountered an error. Please try again later."
+                )
 
-            st.session_state.messages.append({"role": "assistant", "content": full_response})
+            st.session_state.messages.append(
+                {"role": "assistant", "content": full_response}
+            )
             increment_usage(
                 st.session_state.conversation_id,
                 estimate_tokens(prompt) + estimate_tokens(full_response),
@@ -321,13 +354,29 @@ def main():
                     conn = get_connection()
                     cursor = conn.cursor()
                     # Ensure conversation exists
-                    cursor.execute("INSERT OR IGNORE INTO conversations (id, title) VALUES (?, ?)", 
-                                 (st.session_state.conversation_id, prompt[:50]))
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO conversations (id, title) VALUES (?, ?)",
+                        (st.session_state.conversation_id, prompt[:50]),
+                    )
                     # Save messages
-                    cursor.execute("INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, ?, ?, ?)",
-                                 (st.session_state.conversation_id, "user", prompt, estimate_tokens(prompt)))
-                    cursor.execute("INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, ?, ?, ?)",
-                                 (st.session_state.conversation_id, "assistant", full_response, estimate_tokens(full_response)))
+                    cursor.execute(
+                        "INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, ?, ?, ?)",
+                        (
+                            st.session_state.conversation_id,
+                            "user",
+                            prompt,
+                            estimate_tokens(prompt),
+                        ),
+                    )
+                    cursor.execute(
+                        "INSERT INTO messages (conversation_id, role, content, tokens) VALUES (?, ?, ?, ?)",
+                        (
+                            st.session_state.conversation_id,
+                            "assistant",
+                            full_response,
+                            estimate_tokens(full_response),
+                        ),
+                    )
                     conn.commit()
                     conn.close()
                 except Exception as e:
@@ -336,19 +385,22 @@ def main():
     # Global Footer
     st.divider()
     supp_text = get_setting("branding.supplemental_footer_text", "")
-    hide_badge = str(get_setting("branding.hide_asklit_badge", "false")).lower() == "true"
-    
+    hide_badge = (
+        str(get_setting("branding.hide_asklit_badge", "false")).lower() == "true"
+    )
+
     footer_html = '<div style="text-align: center; opacity: 0.7; font-size: 0.8rem;">'
     if supp_text:
-        footer_html += f'<span>{escape_html(supp_text)}</span>'
+        footer_html += f"<span>{escape_html(supp_text)}</span>"
         if not hide_badge:
-            footer_html += ' | '
-    
+            footer_html += " | "
+
     if not hide_badge:
         footer_html += '<a href="https://suffolklitlab.org/asklit" target="_blank" rel="noopener noreferrer">Made with AskLit</a>'
-    
-    footer_html += '</div>'
+
+    footer_html += "</div>"
     st.markdown(footer_html, unsafe_allow_html=True)
+
 
 if __name__ == "__main__":
     main()

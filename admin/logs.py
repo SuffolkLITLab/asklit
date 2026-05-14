@@ -4,9 +4,10 @@ from asklit.db import get_connection
 
 # st.set_page_config(page_title="Usage Logs", icon="📈")
 
+
 def main():
     st.title("📈 Usage Logs")
-    
+
     if not st.session_state.get("is_admin_authenticated"):
         st.error("Access denied. Please login.")
         st.stop()
@@ -25,16 +26,21 @@ def main():
         LIMIT 100
         """
         df = pd.read_sql_query(query, conn)
-        
+
         if not df.empty:
             for i, row in df.iterrows():
-                with st.expander(f"{row['title']} ({row['created_at']}) - {row['message_count']} msgs"):
+                with st.expander(
+                    f"{row['title']} ({row['created_at']}) - {row['message_count']} msgs"
+                ):
                     cursor = conn.cursor()
-                    cursor.execute("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC", (row['id'],))
+                    cursor.execute(
+                        "SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC",
+                        (row["id"],),
+                    )
                     msgs = cursor.fetchall()
                     for m in msgs:
                         st.write(f"**{m['role'].upper()}** ({m['created_at']}):")
-                        st.write(m['content'])
+                        st.write(m["content"])
                         st.divider()
         else:
             st.info("No conversations logged yet.")
@@ -43,12 +49,15 @@ def main():
     with tab2:
         st.header("Rate Limit Events")
         conn = get_connection()
-        df_rl = pd.read_sql_query("SELECT * FROM rate_limit_events ORDER BY timestamp DESC LIMIT 100", conn)
+        df_rl = pd.read_sql_query(
+            "SELECT * FROM rate_limit_events ORDER BY timestamp DESC LIMIT 100", conn
+        )
         if not df_rl.empty:
             st.dataframe(df_rl)
         else:
             st.info("No rate limit events logged.")
         conn.close()
+
 
 if __name__ == "__main__":
     main()

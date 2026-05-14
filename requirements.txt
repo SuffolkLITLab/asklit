@@ -1,5 +1,6 @@
 streamlit
 chromadb
+protobuf==3.20.3
 litellm
 sentence-transformers
 torch

@@ -7,11 +7,13 @@ from asklit.db import get_connection
 DEFAULT_CONFIG_PATH = os.path.join("config", "defaults.toml")
 _MISSING = object()
 
+
 def load_toml_config(path):
     if os.path.exists(path):
         with open(path, "r") as f:
             return toml.load(f)
     return {}
+
 
 def get_nested_value(config, key, default=_MISSING):
     parts = key.split(".")
@@ -22,6 +24,7 @@ def get_nested_value(config, key, default=_MISSING):
         else:
             return default
     return val
+
 
 def get_secret_value(key, default=_MISSING):
     try:
@@ -42,6 +45,7 @@ def get_secret_value(key, default=_MISSING):
     env_key = key.upper().replace(".", "_")
     return os.getenv(env_key, default)
 
+
 def get_setting(key, default=None):
     """
     Retrieve a setting value. Priority:
@@ -57,7 +61,7 @@ def get_setting(key, default=None):
         cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
         row = cursor.fetchone()
         if row:
-            return row['value']
+            return row["value"]
     except sqlite3.Error:
         row = None
     finally:
@@ -73,16 +77,18 @@ def get_setting(key, default=None):
     config = load_toml_config(DEFAULT_CONFIG_PATH)
     return get_nested_value(config, key, default)
 
+
 def set_setting(key, value):
     """Save a setting to the SQLite database."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
         "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-        (key, str(value))
+        (key, str(value)),
     )
     conn.commit()
     conn.close()
+
 
 def get_secrets_manually():
     """Manually load secrets from .streamlit/secrets.toml if st.secrets is unavailable."""
@@ -91,10 +97,12 @@ def get_secrets_manually():
         return toml.load(path)
     return {}
 
+
 def get_api_key(provider):
     """Retrieve API key for a specific provider from secrets."""
     key_name = f"{provider.upper()}_API_KEY"
     return get_secret_value(key_name, None)
+
 
 def get_base_url(provider):
     """Retrieve custom base URL for a specific provider from secrets."""

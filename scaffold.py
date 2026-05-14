@@ -18,28 +18,37 @@ from asklit.ui import escape_html, safe_url
 DEFAULT_REPO_NAME = "my-asklit-app"
 REQUEST_TIMEOUT_SECONDS = 20
 FILES_TO_IGNORE = {
-    ".git", "__pycache__", ".pytest_cache", ".streamlit", "data", "scaffold.py", 
-    ".env", "node_modules", ".agents", ".codex"
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".streamlit",
+    "data",
+    "scaffold.py",
+    ".env",
+    "node_modules",
+    ".agents",
+    ".codex",
 }
+
 
 def create_bundle(config_data, data_dir_source):
     """Creates a temporary directory with all project files and the new config/data."""
     temp_dir = tempfile.mkdtemp()
     root_dir = os.path.dirname(os.path.abspath(__file__))
-    
+
     # 1. Copy core files
     for item in os.listdir(root_dir):
         if item in FILES_TO_IGNORE:
             continue
-        
+
         src_path = os.path.join(root_dir, item)
         dst_path = os.path.join(temp_dir, item)
-        
+
         if os.path.isdir(src_path):
             shutil.copytree(src_path, dst_path)
         else:
             shutil.copy2(src_path, dst_path)
-            
+
     # 2. Write the new defaults.toml
     config_path = os.path.join(temp_dir, "config", "defaults.toml")
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -48,7 +57,7 @@ def create_bundle(config_data, data_dir_source):
     system_prompt = toml_data.pop("prompt", "You are a helpful assistant.")
     with open(config_path, "w") as f:
         toml.dump(toml_data, f)
-        
+
     # 3. Copy the built data directory (SQLite + Chroma)
     dst_data_dir = os.path.join(temp_dir, "data")
     if os.path.exists(dst_data_dir):
@@ -58,14 +67,17 @@ def create_bundle(config_data, data_dir_source):
     # 4. Save the custom prompt into the exported database
     exported_db_path = os.path.join(dst_data_dir, "app.sqlite3")
     from asklit.prompts import save_new_prompt
+
     save_new_prompt(system_prompt, db_path=exported_db_path)
-    
+
     # 4. Create a .streamlit/config.toml (standard)
     st_config_dir = os.path.join(temp_dir, ".streamlit")
     os.makedirs(st_config_dir, exist_ok=True)
     with open(os.path.join(st_config_dir, "config.toml"), "w") as f:
-        f.write("[server]\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n")
-        
+        f.write(
+            "[server]\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n"
+        )
+
     # 5. Add a README with setup instructions
     with open(os.path.join(temp_dir, "README.md"), "w") as f:
         f.write(f"# {config_data['app']['title']}\n\n")
@@ -73,11 +85,12 @@ def create_bundle(config_data, data_dir_source):
         f.write("## Setup\n1. Deploy this repository to Streamlit Cloud.\n")
         f.write("2. Set your API keys in the Streamlit Secrets manager.\n")
         f.write("3. You're ready to go!\n")
-        
+
     return temp_dir
 
+
 def zip_directory(path, output_path):
-    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as ziph:
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as ziph:
         for root, dirs, files in os.walk(path):
             for file in files:
                 file_path = os.path.join(root, file)
@@ -88,10 +101,16 @@ def zip_directory(path, output_path):
 def toml_quote(value):
     return toml.dumps({"value": str(value)}).split("=", 1)[1].strip()
 
+
 def main():
     # Branding: Apply to Scaffolder itself
-    logo_url = get_secret_value("branding.logo_url", "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png")
-    homepage_url = get_secret_value("branding.homepage_url", "https://suffolklitlab.org")
+    logo_url = get_secret_value(
+        "branding.logo_url",
+        "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png",
+    )
+    homepage_url = get_secret_value(
+        "branding.homepage_url", "https://suffolklitlab.org"
+    )
     logo_url = safe_url(logo_url)
     homepage_url = safe_url(homepage_url)
     if logo_url:
@@ -112,7 +131,9 @@ def main():
     if "scaffold_id" not in st.session_state:
         st.session_state.scaffold_id = str(uuid.uuid4())
         # Create a unique data directory for this session's build
-        st.session_state.temp_data_dir = os.path.join(tempfile.gettempdir(), f"asklit_data_{st.session_state.scaffold_id}")
+        st.session_state.temp_data_dir = os.path.join(
+            tempfile.gettempdir(), f"asklit_data_{st.session_state.scaffold_id}"
+        )
         os.makedirs(st.session_state.temp_data_dir, exist_ok=True)
         # Initialize a fresh DB in the temp dir
         db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
@@ -120,208 +141,319 @@ def main():
 
     if "app_config" not in st.session_state:
         st.session_state.app_config = {
-            "app": {"title": "My Knowledge Base", "welcome_message": "How can I help you today?", "access_mode": "password"},
-            "model": {}, 
-            "retrieval": {}, 
-            "limits": {}, 
+            "app": {
+                "title": "My Knowledge Base",
+                "welcome_message": "How can I help you today?",
+                "access_mode": "password",
+            },
+            "model": {},
+            "retrieval": {},
+            "limits": {},
             "logging": {"enabled": True},
             "branding": {
                 "favicon_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-favicon.png",
                 "logo_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png",
                 "homepage_url": "https://suffolklitlab.org",
                 "supplemental_footer_text": "",
-                "hide_asklit_badge": False
-            }
+                "hide_asklit_badge": False,
+            },
         }
 
     # Sidebar Navigation
-    step = st.sidebar.radio("Steps", ["1. Identity", "2. AI Model", "3. Knowledge", "4. Export"])
+    step = st.sidebar.radio(
+        "Steps", ["1. Identity", "2. AI Model", "3. Knowledge", "4. Export"]
+    )
 
     if step == "1. Identity":
         st.header("Step 1: App Identity & Branding")
-        
-        st.subheader("Basic Information")
-        st.session_state.app_config["app"]["title"] = st.text_input("App Title", st.session_state.app_config["app"]["title"])
-        st.session_state.app_config["app"]["welcome_message"] = st.text_area("Welcome Message", st.session_state.app_config["app"]["welcome_message"])
-        
-        st.subheader("Access Control")
-        access_mode = st.selectbox("Who can access the chat?", ["Public", "Password Protected"], index=0 if st.session_state.app_config["app"]["access_mode"] == "public" else 1)
-        st.session_state.app_config["app"]["access_mode"] = "public" if access_mode == "Public" else "password"
-        
-        if st.session_state.app_config["app"]["access_mode"] == "password":
-            st.info("Since you chose 'Password Protected', you will need to set a SHA-256 password hash in your secrets later. We will help you generate this in the final step.")
 
-        st.session_state.app_config["app"]["disable_admin"] = st.checkbox("Disable Admin Backend", st.session_state.app_config["app"].get("disable_admin", False), help="Hide all management and setup pages in the deployed app.")
-        
+        st.subheader("Basic Information")
+        st.session_state.app_config["app"]["title"] = st.text_input(
+            "App Title", st.session_state.app_config["app"]["title"]
+        )
+        st.session_state.app_config["app"]["welcome_message"] = st.text_area(
+            "Welcome Message", st.session_state.app_config["app"]["welcome_message"]
+        )
+
+        st.subheader("Access Control")
+        access_mode = st.selectbox(
+            "Who can access the chat?",
+            ["Public", "Password Protected"],
+            index=(
+                0
+                if st.session_state.app_config["app"]["access_mode"] == "public"
+                else 1
+            ),
+        )
+        st.session_state.app_config["app"]["access_mode"] = (
+            "public" if access_mode == "Public" else "password"
+        )
+
+        if st.session_state.app_config["app"]["access_mode"] == "password":
+            st.info(
+                "Since you chose 'Password Protected', you will need to set a SHA-256 password hash in your secrets later. We will help you generate this in the final step."
+            )
+
+        st.session_state.app_config["app"]["disable_admin"] = st.checkbox(
+            "Disable Admin Backend",
+            st.session_state.app_config["app"].get("disable_admin", False),
+            help="Hide all management and setup pages in the deployed app.",
+        )
+
         st.subheader("AI Personality")
         # System Prompt
-        current_prompt = st.session_state.app_config.get("prompt", "You are a helpful assistant.")
-        st.session_state.app_config["prompt"] = st.text_area("System Prompt", current_prompt, help="This defines how the AI behaves and its core instructions.")
-        
+        current_prompt = st.session_state.app_config.get(
+            "prompt", "You are a helpful assistant."
+        )
+        st.session_state.app_config["prompt"] = st.text_area(
+            "System Prompt",
+            current_prompt,
+            help="This defines how the AI behaves and its core instructions.",
+        )
+
         # Conversation Starters
         starters = st.session_state.app_config["app"].get("conversation_starters", [])
-        starters_text = "\n".join([s["label"] if isinstance(s, dict) else s for s in starters])
-        new_starters = st.text_area("Conversation Starters (one per line)", starters_text, help="Buttons that appear for new users to help them start a chat.")
-        st.session_state.app_config["app"]["conversation_starters"] = [s.strip() for s in new_starters.splitlines() if s.strip()]
+        starters_text = "\n".join(
+            [s["label"] if isinstance(s, dict) else s for s in starters]
+        )
+        new_starters = st.text_area(
+            "Conversation Starters (one per line)",
+            starters_text,
+            help="Buttons that appear for new users to help them start a chat.",
+        )
+        st.session_state.app_config["app"]["conversation_starters"] = [
+            s.strip() for s in new_starters.splitlines() if s.strip()
+        ]
 
         st.subheader("Branding Assets")
         # File Uploaders for Branding
-        logo_file = st.file_uploader("Upload Logo", type=['png', 'jpg', 'jpeg', 'svg'])
+        logo_file = st.file_uploader("Upload Logo", type=["png", "jpg", "jpeg", "svg"])
         if logo_file:
             assets_dir = os.path.join(st.session_state.temp_data_dir, "assets")
             os.makedirs(assets_dir, exist_ok=True)
             logo_path = os.path.join(assets_dir, logo_file.name)
             with open(logo_path, "wb") as f:
                 f.write(logo_file.getbuffer())
-            st.session_state.app_config["branding"]["logo_url"] = f"data/assets/{logo_file.name}"
+            st.session_state.app_config["branding"][
+                "logo_url"
+            ] = f"data/assets/{logo_file.name}"
             st.success(f"Logo uploaded: {logo_file.name}")
         else:
-            st.session_state.app_config["branding"]["logo_url"] = st.text_input("Logo URL (fallback)", st.session_state.app_config["branding"]["logo_url"])
-        
-        favicon_file = st.file_uploader("Upload Favicon", type=['png', 'jpg', 'ico', 'svg'])
+            st.session_state.app_config["branding"]["logo_url"] = st.text_input(
+                "Logo URL (fallback)",
+                st.session_state.app_config["branding"]["logo_url"],
+            )
+
+        favicon_file = st.file_uploader(
+            "Upload Favicon", type=["png", "jpg", "ico", "svg"]
+        )
         if favicon_file:
             assets_dir = os.path.join(st.session_state.temp_data_dir, "assets")
             os.makedirs(assets_dir, exist_ok=True)
             fav_path = os.path.join(assets_dir, favicon_file.name)
             with open(fav_path, "wb") as f:
                 f.write(favicon_file.getbuffer())
-            st.session_state.app_config["branding"]["favicon_url"] = f"data/assets/{favicon_file.name}"
+            st.session_state.app_config["branding"][
+                "favicon_url"
+            ] = f"data/assets/{favicon_file.name}"
             st.success(f"Favicon uploaded: {favicon_file.name}")
         else:
-            st.session_state.app_config["branding"]["favicon_url"] = st.text_input("Favicon URL (fallback)", st.session_state.app_config["branding"]["favicon_url"])
+            st.session_state.app_config["branding"]["favicon_url"] = st.text_input(
+                "Favicon URL (fallback)",
+                st.session_state.app_config["branding"]["favicon_url"],
+            )
 
         st.subheader("Links & Footer")
-        st.session_state.app_config["branding"]["homepage_url"] = st.text_input("Homepage URL", st.session_state.app_config["branding"]["homepage_url"])
-        st.session_state.app_config["branding"]["supplemental_footer_text"] = st.text_input("Supplemental Footer Text", st.session_state.app_config["branding"]["supplemental_footer_text"], help="Appears before the 'Made with AskLit' link.")
-        st.session_state.app_config["branding"]["hide_asklit_badge"] = st.checkbox("Hide 'Made with AskLit' link", st.session_state.app_config["branding"]["hide_asklit_badge"])
-        
+        st.session_state.app_config["branding"]["homepage_url"] = st.text_input(
+            "Homepage URL", st.session_state.app_config["branding"]["homepage_url"]
+        )
+        st.session_state.app_config["branding"]["supplemental_footer_text"] = (
+            st.text_input(
+                "Supplemental Footer Text",
+                st.session_state.app_config["branding"]["supplemental_footer_text"],
+                help="Appears before the 'Made with AskLit' link.",
+            )
+        )
+        st.session_state.app_config["branding"]["hide_asklit_badge"] = st.checkbox(
+            "Hide 'Made with AskLit' link",
+            st.session_state.app_config["branding"]["hide_asklit_badge"],
+        )
+
     elif step == "2. AI Model":
         st.header("Step 2: AI Configuration")
-        st.info("You won't need to provide API keys here. You'll set them later in your GitHub/Streamlit settings.")
-        
-        provider = st.selectbox("LLM Provider", ["openai", "anthropic", "google", "groq", "mistral"])
-        model_name = st.text_input("Model Name", value=st.session_state.app_config["model"].get("name", "gpt-4o" if provider == "openai" else ""))
-        
+        st.info(
+            "You won't need to provide API keys here. You'll set them later in your GitHub/Streamlit settings."
+        )
+
+        provider = st.selectbox(
+            "LLM Provider", ["openai", "anthropic", "google", "groq", "mistral"]
+        )
+        model_name = st.text_input(
+            "Model Name",
+            value=st.session_state.app_config["model"].get(
+                "name", "gpt-4o" if provider == "openai" else ""
+            ),
+        )
+
         st.session_state.app_config["model"] = {
             "provider": provider,
             "name": model_name,
             "use_local_embeddings": True,
-            "local_embedding_model": "all-MiniLM-L6-v2"
+            "local_embedding_model": "all-MiniLM-L6-v2",
         }
         st.success("Using local embeddings (no API key needed during scaffolding!)")
 
     elif step == "3. Knowledge":
         st.header("Step 3: Upload Knowledge")
         st.write("Upload the PDFs or documents you want your AI to know about.")
-        
-        uploaded_files = st.file_uploader("Upload Documents", accept_multiple_files=True, type=['pdf', 'docx', 'txt', 'md'])
-        
+
+        uploaded_files = st.file_uploader(
+            "Upload Documents",
+            accept_multiple_files=True,
+            type=["pdf", "docx", "txt", "md"],
+        )
+
         if uploaded_files:
             if st.button("Process & Index Documents"):
                 with st.spinner("Chunking and Embedding... (this may take a minute)"):
                     chroma_path = os.path.join(st.session_state.temp_data_dir, "chroma")
-                    db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
-                    
-                    uploads_dir = os.path.join(st.session_state.temp_data_dir, "uploads")
+                    db_path = os.path.join(
+                        st.session_state.temp_data_dir, "app.sqlite3"
+                    )
+
+                    uploads_dir = os.path.join(
+                        st.session_state.temp_data_dir, "uploads"
+                    )
                     os.makedirs(uploads_dir, exist_ok=True)
-                    
+
                     for uploaded_file in uploaded_files:
                         file_id = str(uuid.uuid4())
                         ext = os.path.splitext(uploaded_file.name)[1]
                         file_path = os.path.join(uploads_dir, f"{file_id}{ext}")
-                        
+
                         with open(file_path, "wb") as f:
                             f.write(uploaded_file.getbuffer())
-                            
+
                         full_text, pages = extract_text(file_path)
                         content_hash = get_content_hash(full_text)
                         chunks = chunk_pages(pages)
-                        
+
                         # Add to SQLite
                         conn = get_connection(db_path=db_path)
                         cursor = conn.cursor()
                         cursor.execute(
                             "INSERT INTO documents (id, filename, file_path, file_type, file_size, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (file_id, uploaded_file.name, f"data/uploads/{file_id}{ext}", ext, uploaded_file.size, content_hash, 'indexed')
+                            (
+                                file_id,
+                                uploaded_file.name,
+                                f"data/uploads/{file_id}{ext}",
+                                ext,
+                                uploaded_file.size,
+                                content_hash,
+                                "indexed",
+                            ),
                         )
-                        chunk_data = [(file_id, c['chunk_index'], c['content'], c['page_number']) for c in chunks]
-                        cursor.executemany("INSERT INTO document_chunks (document_id, chunk_index, content, page_number) VALUES (?, ?, ?, ?)", chunk_data)
+                        chunk_data = [
+                            (file_id, c["chunk_index"], c["content"], c["page_number"])
+                            for c in chunks
+                        ]
+                        cursor.executemany(
+                            "INSERT INTO document_chunks (document_id, chunk_index, content, page_number) VALUES (?, ?, ?, ?)",
+                            chunk_data,
+                        )
                         conn.commit()
                         conn.close()
-                        
+
                         # Add to Chroma
                         add_document_to_index(file_id, chunks, chroma_path=chroma_path)
-                        
+
                     st.success(f"Indexed {len(uploaded_files)} documents!")
 
     elif step == "4. Export":
         st.header("Step 4: Export your Project")
-        
+
         # 1. Configuration Generator
         with st.expander("📋 Deployment Secrets (Copy this!)", expanded=True):
-            st.markdown("Paste the following into your **Streamlit Cloud > Settings > Secrets** panel:")
-            
+            st.markdown(
+                "Paste the following into your **Streamlit Cloud > Settings > Secrets** panel:"
+            )
+
             # Generate the secrets TOML
             secrets_toml = f"# AskLit Deployment Secrets\n"
             secrets_toml += f"{st.session_state.app_config['model']['provider'].upper()}_API_KEY = \"PASTE_YOUR_KEY_HERE\"\n\n"
-            
+
             secrets_toml += f"# Identity & Access\n"
-            secrets_toml += "ADMIN_ROUTE = \"manage\"\n"
+            secrets_toml += 'ADMIN_ROUTE = "manage"\n'
             if not st.session_state.app_config["app"].get("disable_admin"):
-                secrets_toml += "ADMIN_PASSWORD_HASH = \"PASTE_ADMIN_HASH_HERE\"\n"
-            
+                secrets_toml += 'ADMIN_PASSWORD_HASH = "PASTE_ADMIN_HASH_HERE"\n'
+
             if st.session_state.app_config["app"]["access_mode"] == "password":
-                secrets_toml += "SHARED_PASSWORD_HASH = \"PASTE_SHARED_HASH_HERE\"\n"
-            
+                secrets_toml += 'SHARED_PASSWORD_HASH = "PASTE_SHARED_HASH_HERE"\n'
+
             secrets_toml += "\n# App Overrides\n"
             secrets_toml += f"\"app.title\" = {toml_quote(st.session_state.app_config['app']['title'])}\n"
             secrets_toml += f"\"app.access_mode\" = {toml_quote(st.session_state.app_config['app']['access_mode'])}\n"
             secrets_toml += f"\"app.disable_admin\" = {str(st.session_state.app_config['app'].get('disable_admin', False)).lower()}\n"
-            
+
             st.code(secrets_toml, language="toml")
-            
-            if st.session_state.app_config["app"]["access_mode"] == "password" or not st.session_state.app_config["app"].get("disable_admin"):
+
+            if st.session_state.app_config["app"][
+                "access_mode"
+            ] == "password" or not st.session_state.app_config["app"].get(
+                "disable_admin"
+            ):
                 st.subheader("🔑 Password Hasher")
                 st.write("Need a hash? Type a password here and copy the result:")
-                raw_pwd = st.text_input("Raw Password", type="password", key="scaffold_hasher")
+                raw_pwd = st.text_input(
+                    "Raw Password", type="password", key="scaffold_hasher"
+                )
                 if raw_pwd:
                     from asklit.auth import hash_password
+
                     h = hash_password(raw_pwd)
                     st.code(h)
                     st.caption("Copy this hash into your secrets above.")
 
         st.divider()
         repo_name = st.text_input("Repository Name", DEFAULT_REPO_NAME)
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.subheader("Option A: Download ZIP")
-            st.write("Download the complete project folder, ready to be uploaded to GitHub manually.")
+            st.write(
+                "Download the complete project folder, ready to be uploaded to GitHub manually."
+            )
             if st.button("Prepare ZIP Download"):
                 with st.spinner("Bundling files..."):
-                    bundle_dir = create_bundle(st.session_state.app_config, st.session_state.temp_data_dir)
+                    bundle_dir = create_bundle(
+                        st.session_state.app_config, st.session_state.temp_data_dir
+                    )
                     zip_path = os.path.join(tempfile.gettempdir(), f"{repo_name}.zip")
                     zip_directory(bundle_dir, zip_path)
-                    
+
                     with open(zip_path, "rb") as f:
                         st.download_button(
                             label="📥 Download Project ZIP",
                             data=f,
                             file_name=f"{repo_name}.zip",
-                            mime="application/zip"
+                            mime="application/zip",
                         )
 
         with col2:
             st.subheader("Option B: Push to GitHub")
-            
+
             # OAuth Configuration from secrets
             client_id = get_secret_value("GITHUB_CLIENT_ID", None)
             client_secret = get_secret_value("GITHUB_CLIENT_SECRET", None)
-            
+
             if not client_id or not client_secret:
-                st.warning("GitHub OAuth is not configured. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in secrets.")
-                github_token = st.text_input("Fallback: GitHub Personal Access Token", type="password")
+                st.warning(
+                    "GitHub OAuth is not configured. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in secrets."
+                )
+                github_token = st.text_input(
+                    "Fallback: GitHub Personal Access Token", type="password"
+                )
             else:
                 # 1. Check if we already have a token
                 if "github_oauth_token" not in st.session_state:
@@ -342,19 +474,27 @@ def main():
                             if res.status_code == 200:
                                 token_data = res.json()
                                 if "access_token" in token_data:
-                                    st.session_state.github_oauth_token = token_data["access_token"]
+                                    st.session_state.github_oauth_token = token_data[
+                                        "access_token"
+                                    ]
                                     # Clear code from URL to keep it clean
                                     st.query_params.clear()
                                     st.rerun()
                                 else:
-                                    st.error(f"OAuth Error: {token_data.get('error_description', 'Unknown error')}")
+                                    st.error(
+                                        f"OAuth Error: {token_data.get('error_description', 'Unknown error')}"
+                                    )
                             else:
                                 st.error("Failed to exchange code for token.")
-                    
+
                     # Show Connect Button
                     redirect_uri = get_secret_value("GITHUB_REDIRECT_URI", None)
-                    auth_url = f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo&redirect_uri={redirect_uri}" if redirect_uri else f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo"
-                    
+                    auth_url = (
+                        f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo&redirect_uri={redirect_uri}"
+                        if redirect_uri
+                        else f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo"
+                    )
+
                     st.link_button("🔗 Connect to GitHub", auth_url, type="primary")
                     github_token = None
                 else:
@@ -368,7 +508,10 @@ def main():
                 if st.button("🚀 Create Repo & Push"):
                     with st.spinner("Creating repository..."):
                         # 1. Create Repo
-                        headers = {"Authorization": f"token {github_token}", "Accept": "application/vnd.github.v3+json"}
+                        headers = {
+                            "Authorization": f"token {github_token}",
+                            "Accept": "application/vnd.github.v3+json",
+                        }
                         user_res = requests.get(
                             "https://api.github.com/user",
                             headers=headers,
@@ -377,38 +520,60 @@ def main():
                         if user_res.status_code != 200:
                             st.error("Invalid GitHub Token")
                         else:
-                            username = user_res.json()['login']
+                            username = user_res.json()["login"]
                             repo_res = requests.post(
                                 "https://api.github.com/user/repos",
                                 headers=headers,
                                 json={"name": repo_name, "private": True},
                                 timeout=REQUEST_TIMEOUT_SECONDS,
                             )
-                            
+
                             if repo_res.status_code == 201:
-                                st.success(f"Created repository: {username}/{repo_name}")
-                                st.info("Pushing files via API... (This may take a moment)")
-                                
+                                st.success(
+                                    f"Created repository: {username}/{repo_name}"
+                                )
+                                st.info(
+                                    "Pushing files via API... (This may take a moment)"
+                                )
+
                                 # 2. Push files (Simplified: using the ZIP approach or individual commits)
                                 # Note: Pushing large binary files (like the DB) via the Content API has limits (20MB).
                                 # For a better experience, we should tell them to use the ZIP for now if it fails.
-                                st.warning("Direct push via API is limited for large knowledge bases. If it fails, use the ZIP option.")
-                                
-                                bundle_dir = create_bundle(st.session_state.app_config, st.session_state.temp_data_dir)
-                                
+                                st.warning(
+                                    "Direct push via API is limited for large knowledge bases. If it fails, use the ZIP option."
+                                )
+
+                                bundle_dir = create_bundle(
+                                    st.session_state.app_config,
+                                    st.session_state.temp_data_dir,
+                                )
+
                                 # Recursive function to push files
-                                def push_files(dir_path, repo_full_name, branch="main", base_path=""):
+                                def push_files(
+                                    dir_path,
+                                    repo_full_name,
+                                    branch="main",
+                                    base_path="",
+                                ):
                                     for item in os.listdir(dir_path):
                                         full_path = os.path.join(dir_path, item)
                                         git_path = os.path.join(base_path, item)
-                                        
+
                                         if os.path.isdir(full_path):
-                                            push_files(full_path, repo_full_name, branch, git_path)
+                                            push_files(
+                                                full_path,
+                                                repo_full_name,
+                                                branch,
+                                                git_path,
+                                            )
                                         else:
                                             with open(full_path, "rb") as f:
                                                 import base64
-                                                content = base64.b64encode(f.read()).decode()
-                                                
+
+                                                content = base64.b64encode(
+                                                    f.read()
+                                                ).decode()
+
                                             # Put file
                                             put_res = requests.put(
                                                 f"https://api.github.com/repos/{repo_full_name}/contents/{git_path}",
@@ -416,17 +581,20 @@ def main():
                                                 json={
                                                     "message": f"Add {git_path}",
                                                     "content": content,
-                                                    "branch": branch
+                                                    "branch": branch,
                                                 },
                                                 timeout=REQUEST_TIMEOUT_SECONDS,
                                             )
                                             if put_res.status_code not in [200, 201]:
-                                                st.error(f"Failed to push {git_path}: {put_res.text}")
-                                
+                                                st.error(
+                                                    f"Failed to push {git_path}: {put_res.text}"
+                                                )
+
                                 push_files(bundle_dir, f"{username}/{repo_name}")
                                 st.success("Finished pushing files!")
                             else:
                                 st.error(f"Failed to create repo: {repo_res.text}")
+
 
 if __name__ == "__main__":
     main()

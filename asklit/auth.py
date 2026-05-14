@@ -26,10 +26,11 @@ def is_admin():
     """Check if the current session is an admin session."""
     return bool(st.session_state.get("is_admin_authenticated"))
 
+
 def check_password():
     """Returns True if the user had the correct password."""
     access_mode = get_setting("app.access_mode", "public")
-    
+
     if access_mode == "public":
         return True
 
@@ -59,8 +60,10 @@ def check_password():
         # Password correct.
         return True
 
+
 def admin_login():
     """Show admin login form."""
+
     def verify_admin():
         admin_hash = get_secret_value("ADMIN_PASSWORD_HASH", None)
         if verify_password(st.session_state["admin_password"], admin_hash):
@@ -71,6 +74,11 @@ def admin_login():
             st.error("Admin password incorrect")
 
     if not is_admin():
-        st.text_input("Admin Password", type="password", on_change=verify_admin, key="admin_password")
+        st.text_input(
+            "Admin Password",
+            type="password",
+            on_change=verify_admin,
+            key="admin_password",
+        )
         return False
     return True

@@ -3,8 +3,10 @@ import os
 
 DB_PATH_DEFAULT = os.path.join("data", "app.sqlite3")
 
+
 def get_db_path():
     return os.environ.get("ASKLIT_DB_PATH", DB_PATH_DEFAULT)
+
 
 def get_connection(db_path=None):
     if db_path is None:
@@ -16,10 +18,11 @@ def get_connection(db_path=None):
     conn.row_factory = sqlite3.Row
     return conn
 
+
 def init_db(db_path=None):
     if db_path is None:
         db_path = get_db_path()
-        
+
     conn = get_connection(db_path=db_path)
     cursor = conn.cursor()
 
@@ -128,6 +131,7 @@ def init_db(db_path=None):
 
     conn.commit()
     conn.close()
+
 
 if __name__ == "__main__":
     init_db()

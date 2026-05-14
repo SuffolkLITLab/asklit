@@ -57,7 +57,8 @@ def load_default_prompt_config():
                 return {
                     "prompt": data.get("prompt", "You are a helpful assistant."),
                     "conversation_starters": normalize_conversation_starters(
-                        data.get("conversation starters") or data.get("conversation_starters")
+                        data.get("conversation starters")
+                        or data.get("conversation_starters")
                     ),
                 }
             if isinstance(data, str):
@@ -72,12 +73,14 @@ def get_active_prompt():
     """Retrieve the active system prompt from SQLite or the default file."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT content FROM prompt_versions WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1")
+    cursor.execute(
+        "SELECT content FROM prompt_versions WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1"
+    )
     row = cursor.fetchone()
     conn.close()
-    
+
     if row:
-        return row['content']
+        return row["content"]
 
     return load_default_prompt_config()["prompt"]
 
@@ -95,40 +98,42 @@ def save_conversation_starters(starters):
     normalized_starters = normalize_conversation_starters(starters)
     set_setting("app.conversation_starters", json.dumps(normalized_starters))
 
+
 def build_messages(user_query, context_chunks, chat_history=None):
     """Construct the messages list for the LLM call."""
     system_prompt = get_active_prompt()
-    
+
     # Add context to system prompt or as a separate message
     # Limit total context to avoid hitting token limits
     context_parts = []
     current_length = 0
-    max_context_chars = 8000 # Safety limit
-    
+    max_context_chars = 8000  # Safety limit
+
     for i, c in enumerate(context_chunks):
-        content = c['content'].strip()
+        content = c["content"].strip()
         if len(content) < 80:
             continue
         if current_length + len(content) > max_context_chars:
             break
         context_parts.append(f"--- SOURCE {i+1} ---\n{content}")
         current_length += len(content)
-    
+
     context_str = "\n\n".join(context_parts)
-    
+
     full_system_content = f"{system_prompt}\n\nRELEVANT CONTEXT FROM THE KNOWLEDGE BASE:\n{context_str}\n\nINSTRUCTIONS FOR USING CONTEXT:\n1. When context is provided and it is relevant, ground the answer in that context before adding general background.\n2. If the context only partially answers the question, say what the context supports and then add any clearly labeled general guidance.\n3. If the context does not contain the answer, or if the user is asking a general question, use your general knowledge to provide a helpful response."
-    
+
     messages = [{"role": "system", "content": full_system_content}]
-    
+
     # Filter chat history to keep only role and content
     if chat_history:
         for msg in chat_history:
             if msg["role"] in ["user", "assistant"]:
                 messages.append({"role": msg["role"], "content": msg["content"]})
-        
+
     messages.append({"role": "user", "content": user_query})
-    
+
     return messages
+
 
 def save_new_prompt(content, db_path=None):
     """Save a new prompt version and set it as active."""
@@ -137,6 +142,8 @@ def save_new_prompt(content, db_path=None):
     # Deactivate current
     cursor.execute("UPDATE prompt_versions SET is_active = 0")
     # Insert new
-    cursor.execute("INSERT INTO prompt_versions (content, is_active) VALUES (?, 1)", (content,))
+    cursor.execute(
+        "INSERT INTO prompt_versions (content, is_active) VALUES (?, 1)", (content,)
+    )
     conn.commit()
     conn.close()

@@ -1,5 +1,5 @@
 import streamlit as st
-import hashlib
+from asklit.auth import hash_password
 
 def hash_tool_page():
     st.title("🔑 Password Hash Generator")
@@ -11,8 +11,7 @@ def hash_tool_page():
     password = st.text_input("Enter password to hash", type="password")
     
     if password:
-        # We use SHA-256 as it's the standard for this template's current auth logic
-        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        pw_hash = hash_password(password)
         
         st.subheader("Your Secure Hash:")
         st.code(pw_hash, language="text")

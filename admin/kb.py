@@ -89,8 +89,8 @@ def main():
                     client = get_chroma_client()
                     try:
                         client.delete_collection(COLLECTION_NAME)
-                    except:
-                        pass
+                    except Exception as e:
+                        st.caption(f"No existing vector collection to clear: {e}")
                     
                     # 2. Re-process every doc in SQLite
                     for _, row in df.iterrows():

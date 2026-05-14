@@ -9,6 +9,10 @@ from asklit.prompts import (
 
 # st.set_page_config(page_title="Admin Panel", page_icon="⚙️")
 
+
+def option_index(options, value, default=0):
+    return options.index(value) if value in options else default
+
 def main():
     st.title("⚙️ Admin Panel")
     
@@ -74,9 +78,13 @@ def main():
     with tab2:
         st.header("Model & RAG Settings")
         
-        provider = st.selectbox("LLM Provider", ["openai", "azure", "anthropic", "google", "ollama"], 
-                                index=["openai", "azure", "anthropic", "google", "ollama"].index(get_setting("model.provider", "openai")),
-                                help="Use 'openai' for standard OpenAI or OpenAI-compatible proxies (using full URL). Use 'azure' for direct Azure OpenAI endpoints.")
+        provider_options = ["openai", "azure", "anthropic", "google", "ollama"]
+        provider = st.selectbox(
+            "LLM Provider",
+            provider_options,
+            index=option_index(provider_options, get_setting("model.provider", "openai")),
+            help="Use 'openai' for standard OpenAI or OpenAI-compatible proxies (using full URL). Use 'azure' for direct Azure OpenAI endpoints."
+        )
         
         model_name = st.text_input("Model Name / Deployment ID", value=get_setting("model.name", "gpt-5-nano"),
                                   help="The name of the model or the Azure Deployment ID.")
@@ -95,6 +103,17 @@ def main():
                                          value=get_setting("model.embedding_model", "text-embedding-3-small"),
                                          help="Used when 'Use Local Embeddings' is disabled. Uses your LLM provider API.")
 
+        embedding_provider_options = ["openai", "azure", "anthropic", "google", "ollama"]
+        embedding_provider = st.selectbox(
+            "Embedding Provider",
+            embedding_provider_options,
+            index=option_index(
+                embedding_provider_options,
+                get_setting("model.embedding_provider", get_setting("model.provider", "openai"))
+            ),
+            help="Provider used for remote embeddings. Usually this matches the LLM provider."
+        )
+
         use_local = st.checkbox("Use Local Embeddings", 
                                value=(get_setting("model.use_local_embeddings", "true") == "true"),
                                help="Enable to use a local model (free, no API key). Disable to use the remote model.")
@@ -104,7 +123,7 @@ def main():
         reasoning_effort = st.selectbox(
             "Reasoning Effort",
             ["minimal", "low", "medium", "high"],
-            index=["minimal", "low", "medium", "high"].index(get_setting("model.reasoning_effort", "low")),
+            index=option_index(["minimal", "low", "medium", "high"], get_setting("model.reasoning_effort", "low"), default=1),
             help="Used by reasoning models such as GPT-5. Lower values usually respond faster and leave more budget for visible output."
         )
         
@@ -118,6 +137,7 @@ def main():
             set_setting("model.temperature", temp)
             set_setting("model.disable_temperature", "true" if disable_temp else "false")
             set_setting("model.local_embedding_model", local_embed_model)
+            set_setting("model.embedding_provider", embedding_provider)
             set_setting("model.embedding_model", remote_embed_model)
             set_setting("model.use_local_embeddings", "true" if use_local else "false")
             set_setting("model.max_tokens", max_tokens)

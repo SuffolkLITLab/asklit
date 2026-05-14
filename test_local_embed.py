@@ -1,6 +1,6 @@
 from asklit.embeddings import get_embedding
 
-def test():
+def run_manual_check():
     print("Testing local embedding...")
     text = "This is a test document."
     vector = get_embedding(text)
@@ -10,4 +10,4 @@ def test():
         print("SUCCESS: Local embedding generated.")
 
 if __name__ == "__main__":
-    test()
+    run_manual_check()

@@ -3,10 +3,13 @@ title = "AskLit"
 welcome_message = "Welcome! How can I help you today?"
 access_mode = "public" # public, password, admin-only
 disable_admin = false
+enable_scaffolder = false
 
 [model]
 provider = "openai"
 name = "gpt-5-nano"
+embedding_provider = "openai"
+embedding_model = "text-embedding-3-small"
 temperature = 1.0
 disable_temperature = false
 local_embedding_model = "all-MiniLM-L6-v2"

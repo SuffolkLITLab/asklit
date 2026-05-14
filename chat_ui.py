@@ -13,6 +13,7 @@ from asklit.rate_limits import (
     increment_usage,
 )
 from asklit.db import get_connection
+from asklit.ui import escape_html, safe_url
 
 # st.set_page_config(
 #     page_title=get_setting("app.title", "AskLit"),
@@ -129,14 +130,15 @@ def get_document_labels(document_ids):
     if not document_ids:
         return {}
 
-    placeholders = ",".join("?" for _ in document_ids)
+    document_ids = set(document_ids)
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        f"SELECT id, filename FROM documents WHERE id IN ({placeholders})",
-        tuple(document_ids)
-    )
-    labels = {row["id"]: row["filename"] for row in cursor.fetchall()}
+    cursor.execute("SELECT id, filename FROM documents")
+    labels = {
+        row["id"]: row["filename"]
+        for row in cursor.fetchall()
+        if row["id"] in document_ids
+    }
     conn.close()
     return labels
 
@@ -190,17 +192,24 @@ def main():
     # Branding: Logo in sidebar or top
     logo_url = get_setting("branding.logo_url")
     homepage_url = get_setting("branding.homepage_url")
+    logo_width = int(get_setting("branding.logo_width", 200))
+    logo_url = safe_url(logo_url)
+    homepage_url = safe_url(homepage_url)
     if logo_url:
         if homepage_url:
-            st.sidebar.markdown(f'<a href="{homepage_url}" target="_blank"><img src="{logo_url}" width="{get_setting("branding.logo_width", 200)}"></a>', unsafe_allow_html=True)
+            st.sidebar.markdown(
+                f'<a href="{escape_html(homepage_url)}" target="_blank" rel="noopener noreferrer">'
+                f'<img src="{escape_html(logo_url)}" width="{logo_width}"></a>',
+                unsafe_allow_html=True,
+            )
         else:
-            st.sidebar.image(logo_url, width=int(get_setting("branding.logo_width", 200)))
+            st.sidebar.image(logo_url, width=logo_width)
     
     st.sidebar.divider()
 
     st.title(get_setting("app.title", "AskLit"))
     
-    # ... rest of main logic ...
+    if "messages" not in st.session_state:
         st.session_state.messages = []
         welcome = get_setting("app.welcome_message", "Welcome! How can I help you today?")
         st.session_state.messages.append({"role": "assistant", "content": welcome})
@@ -322,8 +331,7 @@ def main():
                     conn.commit()
                     conn.close()
                 except Exception as e:
-                    # Silent fail on logging for user
-                    pass
+                    st.session_state["last_logging_error"] = str(e)
 
     # Global Footer
     st.divider()
@@ -332,12 +340,12 @@ def main():
     
     footer_html = '<div style="text-align: center; opacity: 0.7; font-size: 0.8rem;">'
     if supp_text:
-        footer_html += f'<span>{supp_text}</span>'
+        footer_html += f'<span>{escape_html(supp_text)}</span>'
         if not hide_badge:
             footer_html += ' | '
     
     if not hide_badge:
-        footer_html += '<a href="https://suffolklitlab.org/asklit" target="_blank">Made with AskLit</a>'
+        footer_html += '<a href="https://suffolklitlab.org/asklit" target="_blank" rel="noopener noreferrer">Made with AskLit</a>'
     
     footer_html += '</div>'
     st.markdown(footer_html, unsafe_allow_html=True)

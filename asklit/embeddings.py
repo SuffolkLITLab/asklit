@@ -22,12 +22,19 @@ def get_remote_embeddings(input_data, model=None):
     if model is None:
         model = get_setting("model.embedding_model", "text-embedding-3-small")
     
-    provider = model.split("/")[0] if "/" in model else "openai"
+    provider = get_setting("model.embedding_provider", get_setting("model.provider", "openai"))
+    if "/" in model:
+        provider = model.split("/")[0]
+
     api_key = get_api_key(provider)
     base_url = get_base_url(provider)
     
-    # Force openai/ prefix for custom base URLs to ensure LiteLLM routes correctly
-    if provider == "openai" and base_url and not model.startswith("openai/"):
+    if provider == "azure" and not model.startswith("azure/"):
+        model = f"azure/{model}"
+        if base_url and "/openai/v1" in base_url:
+            base_url = base_url.split("/openai/v1")[0]
+    elif provider == "openai" and base_url and not model.startswith("openai/"):
+        # Force openai/ prefix for custom base URLs to ensure LiteLLM routes correctly.
         model = f"openai/{model}"
         
     response = litellm.embedding(

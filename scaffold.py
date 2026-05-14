@@ -11,15 +11,16 @@ from datetime import datetime
 from asklit.db import get_connection, init_db
 from asklit.ingestion import extract_text, chunk_pages, get_content_hash
 from asklit.rag import add_document_to_index, get_chroma_client, COLLECTION_NAME
+from asklit.config import get_secret_value
+from asklit.ui import escape_html, safe_url
 
 # Constants
 DEFAULT_REPO_NAME = "my-asklit-app"
+REQUEST_TIMEOUT_SECONDS = 20
 FILES_TO_IGNORE = {
     ".git", "__pycache__", ".pytest_cache", ".streamlit", "data", "scaffold.py", 
     ".env", "node_modules", ".agents", ".codex"
 }
-
-st.set_page_config(page_title="AskLit Scaffolder", page_icon="🏗️", layout="wide")
 
 def create_bundle(config_data, data_dir_source):
     """Creates a temporary directory with all project files and the new config/data."""
@@ -83,12 +84,22 @@ def zip_directory(path, output_path):
                 arcname = os.path.relpath(file_path, path)
                 ziph.write(file_path, arcname)
 
+
+def toml_quote(value):
+    return toml.dumps({"value": str(value)}).split("=", 1)[1].strip()
+
 def main():
     # Branding: Apply to Scaffolder itself
-    logo_url = st.secrets.get("branding.logo_url", "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png")
-    homepage_url = st.secrets.get("branding.homepage_url", "https://suffolklitlab.org")
+    logo_url = get_secret_value("branding.logo_url", "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png")
+    homepage_url = get_secret_value("branding.homepage_url", "https://suffolklitlab.org")
+    logo_url = safe_url(logo_url)
+    homepage_url = safe_url(homepage_url)
     if logo_url:
-        st.sidebar.markdown(f'<a href="{homepage_url}" target="_blank"><img src="{logo_url}" width="150"></a>', unsafe_allow_html=True)
+        st.sidebar.markdown(
+            f'<a href="{escape_html(homepage_url)}" target="_blank" rel="noopener noreferrer">'
+            f'<img src="{escape_html(logo_url)}" width="150"></a>',
+            unsafe_allow_html=True,
+        )
         st.sidebar.divider()
 
     st.title("🏗️ AskLit Project Scaffolder")
@@ -255,16 +266,16 @@ def main():
             secrets_toml += f"{st.session_state.app_config['model']['provider'].upper()}_API_KEY = \"PASTE_YOUR_KEY_HERE\"\n\n"
             
             secrets_toml += f"# Identity & Access\n"
-            secrets_toml += f"ADMIN_ROUTE = \"manage\"\n"
+            secrets_toml += "ADMIN_ROUTE = \"manage\"\n"
             if not st.session_state.app_config["app"].get("disable_admin"):
-                secrets_toml += f"ADMIN_PASSWORD_HASH = \"PASTE_ADMIN_HASH_HERE\"\n"
+                secrets_toml += "ADMIN_PASSWORD_HASH = \"PASTE_ADMIN_HASH_HERE\"\n"
             
             if st.session_state.app_config["app"]["access_mode"] == "password":
-                secrets_toml += f"SHARED_PASSWORD_HASH = \"PASTE_SHARED_HASH_HERE\"\n"
+                secrets_toml += "SHARED_PASSWORD_HASH = \"PASTE_SHARED_HASH_HERE\"\n"
             
-            secrets_toml += f"\n# App Overrides\n"
-            secrets_toml += f"\"app.title\" = \"{st.session_state.app_config['app']['title']}\"\n"
-            secrets_toml += f"\"app.access_mode\" = \"{st.session_state.app_config['app']['access_mode']}\"\n"
+            secrets_toml += "\n# App Overrides\n"
+            secrets_toml += f"\"app.title\" = {toml_quote(st.session_state.app_config['app']['title'])}\n"
+            secrets_toml += f"\"app.access_mode\" = {toml_quote(st.session_state.app_config['app']['access_mode'])}\n"
             secrets_toml += f"\"app.disable_admin\" = {str(st.session_state.app_config['app'].get('disable_admin', False)).lower()}\n"
             
             st.code(secrets_toml, language="toml")
@@ -274,8 +285,8 @@ def main():
                 st.write("Need a hash? Type a password here and copy the result:")
                 raw_pwd = st.text_input("Raw Password", type="password", key="scaffold_hasher")
                 if raw_pwd:
-                    import hashlib
-                    h = hashlib.sha256(raw_pwd.encode()).hexdigest()
+                    from asklit.auth import hash_password
+                    h = hash_password(raw_pwd)
                     st.code(h)
                     st.caption("Copy this hash into your secrets above.")
 
@@ -305,8 +316,8 @@ def main():
             st.subheader("Option B: Push to GitHub")
             
             # OAuth Configuration from secrets
-            client_id = st.secrets.get("GITHUB_CLIENT_ID")
-            client_secret = st.secrets.get("GITHUB_CLIENT_SECRET")
+            client_id = get_secret_value("GITHUB_CLIENT_ID", None)
+            client_secret = get_secret_value("GITHUB_CLIENT_SECRET", None)
             
             if not client_id or not client_secret:
                 st.warning("GitHub OAuth is not configured. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in secrets.")
@@ -325,7 +336,8 @@ def main():
                                     "client_id": client_id,
                                     "client_secret": client_secret,
                                     "code": code,
-                                }
+                                },
+                                timeout=REQUEST_TIMEOUT_SECONDS,
                             )
                             if res.status_code == 200:
                                 token_data = res.json()
@@ -340,7 +352,7 @@ def main():
                                 st.error("Failed to exchange code for token.")
                     
                     # Show Connect Button
-                    redirect_uri = st.secrets.get("GITHUB_REDIRECT_URI")
+                    redirect_uri = get_secret_value("GITHUB_REDIRECT_URI", None)
                     auth_url = f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo&redirect_uri={redirect_uri}" if redirect_uri else f"https://github.com/login/oauth/authorize?client_id={client_id}&scope=repo"
                     
                     st.link_button("🔗 Connect to GitHub", auth_url, type="primary")
@@ -357,14 +369,21 @@ def main():
                     with st.spinner("Creating repository..."):
                         # 1. Create Repo
                         headers = {"Authorization": f"token {github_token}", "Accept": "application/vnd.github.v3+json"}
-                        user_res = requests.get("https://api.github.com/user", headers=headers)
+                        user_res = requests.get(
+                            "https://api.github.com/user",
+                            headers=headers,
+                            timeout=REQUEST_TIMEOUT_SECONDS,
+                        )
                         if user_res.status_code != 200:
                             st.error("Invalid GitHub Token")
                         else:
                             username = user_res.json()['login']
-                            repo_res = requests.post("https://api.github.com/user/repos", 
-                                                   headers=headers, 
-                                                   json={"name": repo_name, "private": True})
+                            repo_res = requests.post(
+                                "https://api.github.com/user/repos",
+                                headers=headers,
+                                json={"name": repo_name, "private": True},
+                                timeout=REQUEST_TIMEOUT_SECONDS,
+                            )
                             
                             if repo_res.status_code == 201:
                                 st.success(f"Created repository: {username}/{repo_name}")
@@ -398,7 +417,8 @@ def main():
                                                     "message": f"Add {git_path}",
                                                     "content": content,
                                                     "branch": branch
-                                                }
+                                                },
+                                                timeout=REQUEST_TIMEOUT_SECONDS,
                                             )
                                             if put_res.status_code not in [200, 201]:
                                                 st.error(f"Failed to push {git_path}: {put_res.text}")

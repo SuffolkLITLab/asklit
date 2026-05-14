@@ -1,5 +1,8 @@
 import streamlit as st
-from asklit.config import get_setting
+from asklit.config import get_secret_value, get_setting
+from asklit.db import init_db
+
+init_db()
 
 # Set page config once at the very top
 st.set_page_config(
@@ -42,8 +45,12 @@ logout_page = st.Page(logout, title="Logout", icon="🚪")
 # 2. Build the navigation based on authentication status
 # We use a secret route name from secrets to "unlock" the admin login page
 # Example: If ADMIN_ROUTE = "manage", visiting /?manage will show the login page
-admin_route = st.secrets.get("ADMIN_ROUTE", "admin-login")
+admin_route = get_secret_value("ADMIN_ROUTE", "admin-login")
 disable_admin = str(get_setting("app.disable_admin", "false")).lower() == "true"
+enable_scaffolder = str(get_setting("app.enable_scaffolder", "false")).lower() == "true"
+public_pages = [chat_page]
+if enable_scaffolder:
+    public_pages.append(scaffold_page)
 
 if admin_route in st.query_params and not disable_admin:
     st.session_state["admin_unlocked"] = True
@@ -53,19 +60,19 @@ if admin_route in st.query_params and not disable_admin:
 if st.session_state.get("is_admin_authenticated") and not disable_admin:
     # Admin View: Show everything
     pg = st.navigation({
-        "Public": [chat_page, scaffold_page],
+        "Public": public_pages,
         "Admin Management": [admin_settings, admin_kb, admin_logs, admin_hash_tool],
         "Account": [logout_page]
     })
 elif st.session_state.get("admin_unlocked") and not disable_admin:
     # Hidden Login View: Show Chat + Login + Setup Tools
     pg = st.navigation({
-        "Chat": [chat_page, scaffold_page],
+        "Chat": public_pages,
         "System": [login_page, admin_hash_tool]
     })
 else:
-    # Pure Public View: Only Chat + Scaffolder
-    pg = st.navigation([chat_page, scaffold_page])
+    # Pure Public View: Only the production chat flow by default.
+    pg = st.navigation(public_pages)
 
 # 3. Run navigation
 pg.run()

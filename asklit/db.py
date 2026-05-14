@@ -1,6 +1,5 @@
 import sqlite3
 import os
-from datetime import datetime
 
 DB_PATH_DEFAULT = os.path.join("data", "app.sqlite3")
 
@@ -10,6 +9,9 @@ def get_db_path():
 def get_connection(db_path=None):
     if db_path is None:
         db_path = get_db_path()
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
@@ -18,7 +20,6 @@ def init_db(db_path=None):
     if db_path is None:
         db_path = get_db_path()
         
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = get_connection(db_path=db_path)
     cursor = conn.cursor()
 

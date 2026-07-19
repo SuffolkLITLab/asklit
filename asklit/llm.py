@@ -41,9 +41,8 @@ def call_llm(messages, stream=True, max_tokens_override=None, model_override=Non
     configured_model = get_setting("model.name", "gpt-5-nano")
     model = str(model_override or configured_model).strip()
     allowed_models = get_allowed_models()
-    if model_override and allowed_models and model not in allowed_models:
-        raise ValueError("The selected model is not enabled for this AskLit instance.")
-    if model_override and not allowed_models and model != str(configured_model):
+    is_configured_model = model == str(configured_model).strip()
+    if model_override and not is_configured_model and model not in allowed_models:
         raise ValueError("The selected model is not enabled for this AskLit instance.")
     provider = get_setting("model.provider", "openai")
     temperature = float(get_setting("model.temperature", 1.0))

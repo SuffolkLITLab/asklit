@@ -142,3 +142,38 @@ def test_model_override_must_be_in_configured_allowlist(monkeypatch):
         assert "not enabled" in str(exc)
     else:
         raise AssertionError("Expected an unapproved model override to fail closed")
+
+
+def test_configured_legacy_model_is_valid_when_not_in_optional_allowlist(monkeypatch):
+    settings = {
+        "model.name": "gpt-5-nano",
+        "model.allowed_models": "gpt-5.4-nano,gpt-5.4-mini",
+        "model.provider": "openai",
+        "model.temperature": "1.0",
+        "model.disable_temperature": "false",
+        "model.max_tokens": "100",
+        "limits.max_output_tokens_hard": "4000",
+    }
+    captured = {}
+    monkeypatch.setattr(
+        llm, "get_setting", lambda key, default=None: settings.get(key, default)
+    )
+    monkeypatch.setattr(llm, "get_api_key", lambda provider: "existing-app-key")
+    monkeypatch.setattr(
+        llm,
+        "get_base_url",
+        lambda provider: "https://example.openai.azure.com/openai/v1",
+    )
+    monkeypatch.setattr(
+        llm.litellm,
+        "completion",
+        lambda **kwargs: captured.update(kwargs) or "response",
+        raising=False,
+    )
+
+    llm.call_llm(
+        [{"role": "user", "content": "Hello"}],
+        model_override="gpt-5-nano",
+    )
+
+    assert captured["model"] == "openai/gpt-5-nano"

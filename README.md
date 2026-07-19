@@ -55,7 +55,18 @@ OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
 "model.name" = "anthropic/claude-3-opus" # Use the provider's specific model string
 ```
 
-### 3. Branding Overrides
+### 3. Limited Azure educator credentials
+
+For workshops or shared trials, do not distribute an Azure AI Services account
+key. Put Azure API Management in front of the Foundry endpoint and give the
+cohort a quota-limited APIM subscription key. AskLit has a dedicated `azure_apim`
+provider that sends this credential in the gateway subscription header.
+
+See [Protecting AskLit with Azure API Management](docs/azure-apim-educator-gateway.md)
+for the gateway policy, Azure setup, credential rotation, and verification
+steps.
+
+### 4. Branding Overrides
 You can override any branding element in secrets without redeploying:
 ```toml
 "branding.logo_url" = "https://example.com/logo.png"

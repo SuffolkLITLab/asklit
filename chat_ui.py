@@ -5,7 +5,7 @@ from asklit.auth import check_password
 from asklit.config import get_setting
 from asklit.rag import query_index
 from asklit.prompts import build_messages, get_conversation_starters
-from asklit.llm import call_llm, estimate_tokens
+from asklit.llm import call_llm, estimate_tokens, get_allowed_models
 from asklit.rate_limits import (
     check_conversation_turn_limit,
     check_prompt_length,
@@ -178,6 +178,32 @@ def has_user_messages(messages):
     return any(message.get("role") == "user" for message in messages)
 
 
+def render_model_selector():
+    configured_model = str(get_setting("model.name", "gpt-5-nano"))
+    selection_enabled = (
+        str(get_setting("model.allow_user_selection", "false")).lower() == "true"
+    )
+    allowed_models = get_allowed_models()
+    if not selection_enabled or not allowed_models:
+        return configured_model
+
+    current_model = st.session_state.get("active_model", configured_model)
+    if current_model not in allowed_models:
+        current_model = (
+            configured_model
+            if configured_model in allowed_models
+            else allowed_models[0]
+        )
+    selected_model = st.sidebar.selectbox(
+        "Model",
+        allowed_models,
+        index=allowed_models.index(current_model),
+        help="Choose a model for this conversation. Azure gateway limits still apply.",
+    )
+    st.session_state.active_model = selected_model
+    return selected_model
+
+
 def render_conversation_starters():
     starters = get_conversation_starters()
     if not starters:
@@ -217,6 +243,7 @@ def main():
             st.sidebar.image(logo_url, width=logo_width)
 
     st.sidebar.divider()
+    active_model = render_model_selector()
 
     st.title(get_setting("app.title", "AskLit"))
 
@@ -300,7 +327,7 @@ def main():
         with st.chat_message("assistant"):
             if st.session_state.get("is_admin_authenticated"):
                 st.caption(
-                    f"Using model: {get_setting('model.name')} via {get_setting('model.provider')}"
+                    f"Using model: {active_model} via {get_setting('model.provider')}"
                 )
 
             response_placeholder = st.empty()
@@ -308,7 +335,7 @@ def main():
 
             try:
                 render_waiting_indicator(response_placeholder)
-                response = call_llm(messages)
+                response = call_llm(messages, model_override=active_model)
                 full_response, finish_reasons = stream_response(
                     response, response_placeholder
                 )
@@ -317,7 +344,11 @@ def main():
                     retry_tokens = max(
                         int(get_setting("model.max_tokens", 1000)) * 2, 2000
                     )
-                    response = call_llm(messages, max_tokens_override=retry_tokens)
+                    response = call_llm(
+                        messages,
+                        max_tokens_override=retry_tokens,
+                        model_override=active_model,
+                    )
                     full_response, finish_reasons = stream_response(
                         response, response_placeholder
                     )
@@ -335,7 +366,12 @@ def main():
                     render_citations(context_chunks)
 
             except Exception as e:
-                st.error(f"Error calling LLM: {str(e)}")
+                if st.session_state.get("is_admin_authenticated"):
+                    st.error(f"Error calling LLM: {str(e)}")
+                else:
+                    st.error(
+                        "The language model is temporarily unavailable or this app has reached its usage limit. Please try again later."
+                    )
                 full_response = (
                     "I'm sorry, I encountered an error. Please try again later."
                 )

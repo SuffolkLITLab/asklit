@@ -91,14 +91,21 @@ def main():
     with tab2:
         st.header("Model & RAG Settings")
 
-        provider_options = ["openai", "azure", "anthropic", "google", "ollama"]
+        provider_options = [
+            "openai",
+            "azure",
+            "azure_apim",
+            "anthropic",
+            "google",
+            "ollama",
+        ]
         provider = st.selectbox(
             "LLM Provider",
             provider_options,
             index=option_index(
                 provider_options, get_setting("model.provider", "openai")
             ),
-            help="Use 'openai' for standard OpenAI or OpenAI-compatible proxies (using full URL). Use 'azure' for direct Azure OpenAI endpoints.",
+            help="Use 'azure_apim' for a protected Azure AI gateway, 'openai' for OpenAI-compatible proxies, or 'azure' for direct Azure OpenAI endpoints.",
         )
 
         model_name = st.text_input(
@@ -132,6 +139,7 @@ def main():
         embedding_provider_options = [
             "openai",
             "azure",
+            "azure_apim",
             "anthropic",
             "google",
             "ollama",
@@ -158,6 +166,13 @@ def main():
             "Max Output Tokens", value=int(get_setting("model.max_tokens", 1000))
         )
 
+        hard_max_tokens = st.number_input(
+            "Hard Output Token Ceiling",
+            min_value=1,
+            value=int(get_setting("limits.max_output_tokens_hard", 4000)),
+            help="Server-side ceiling applied even when a retry requests more output.",
+        )
+
         reasoning_effort = st.selectbox(
             "Reasoning Effort",
             ["minimal", "low", "medium", "high"],
@@ -167,6 +182,20 @@ def main():
                 default=1,
             ),
             help="Used by reasoning models such as GPT-5. Lower values usually respond faster and leave more budget for visible output.",
+        )
+
+        allow_user_selection = st.checkbox(
+            "Let users choose an approved model",
+            value=(
+                str(get_setting("model.allow_user_selection", "false")).lower()
+                == "true"
+            ),
+            help="Shows a model selector in the chat sidebar. Requests remain limited to the allowlist below.",
+        )
+        allowed_models = st.text_area(
+            "Approved Models",
+            value=str(get_setting("model.allowed_models", "")),
+            help="Comma-separated deployment names. The Azure gateway must use the same allowlist.",
         )
 
         top_k = st.number_input(
@@ -190,7 +219,13 @@ def main():
             set_setting("model.embedding_model", remote_embed_model)
             set_setting("model.use_local_embeddings", "true" if use_local else "false")
             set_setting("model.max_tokens", max_tokens)
+            set_setting("limits.max_output_tokens_hard", hard_max_tokens)
             set_setting("model.reasoning_effort", reasoning_effort)
+            set_setting(
+                "model.allow_user_selection",
+                "true" if allow_user_selection else "false",
+            )
+            set_setting("model.allowed_models", allowed_models)
             set_setting("retrieval.top_k", top_k)
             set_setting(
                 "retrieval.show_citations", "true" if show_citations else "false"

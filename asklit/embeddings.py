@@ -40,19 +40,36 @@ def get_remote_embeddings(input_data, model=None):
         model = f"azure/{model}"
         if base_url and "/openai/v1" in base_url:
             base_url = base_url.split("/openai/v1")[0]
-    elif provider == "openai" and base_url and not model.startswith("openai/"):
+    elif (
+        provider in {"openai", "azure_apim"}
+        and base_url
+        and not model.startswith("openai/")
+    ):
         # Force openai/ prefix for custom base URLs to ensure LiteLLM routes correctly.
         model = f"openai/{model}"
 
-    response = litellm.embedding(
-        model=model, input=input_data, api_key=api_key, api_base=base_url
-    )
+    embedding_kwargs = {
+        "model": model,
+        "input": input_data,
+        "api_key": api_key,
+        "api_base": base_url,
+    }
+    if provider == "azure_apim":
+        if not api_key or not base_url:
+            raise RuntimeError(
+                "Azure APIM requires AZURE_APIM_API_KEY and AZURE_APIM_BASE_URL."
+            )
+        embedding_kwargs["extra_headers"] = {
+            "Ocp-Apim-Subscription-Key": api_key,
+        }
+
+    response = litellm.embedding(**embedding_kwargs)
     return [item["embedding"] for item in response.data]
 
 
 def get_embedding(text):
     """Generate embedding for a single text chunk, respecting the local/remote toggle."""
-    use_local = get_setting("model.use_local_embeddings", "true") == "true"
+    use_local = str(get_setting("model.use_local_embeddings", "true")).lower() == "true"
 
     if use_local:
         model = get_local_model()
@@ -71,7 +88,9 @@ class LiteLLMEmbeddingFunction(EmbeddingFunction):
         if isinstance(input, str):
             input = [input]
 
-        use_local = get_setting("model.use_local_embeddings", "true") == "true"
+        use_local = (
+            str(get_setting("model.use_local_embeddings", "true")).lower() == "true"
+        )
 
         if use_local:
             model = get_local_model()

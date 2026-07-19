@@ -286,7 +286,9 @@ def main():
         )
 
         provider = st.selectbox(
-            "LLM Provider", ["openai", "anthropic", "google", "groq", "mistral"]
+            "LLM Provider",
+            ["openai", "azure_apim", "anthropic", "google", "groq", "mistral"],
+            help="Azure APIM uses a limited gateway credential instead of exposing a Foundry account key.",
         )
         model_name = st.text_input(
             "Model Name",
@@ -295,9 +297,24 @@ def main():
             ),
         )
 
+        allow_user_selection = False
+        allowed_models = ""
+        if provider == "azure_apim":
+            allow_user_selection = st.checkbox(
+                "Let users choose among approved models",
+                value=True,
+            )
+            allowed_models = st.text_area(
+                "Approved Azure deployment names",
+                value="gpt-5.4-nano,gpt-5.4-mini,gpt-5.6-sol,deepseek-v4-pro,grok-4.1-fast-reasoning,llama-4-maverick",
+                help="Comma-separated. Keep this synchronized with the APIM policy allowlist.",
+            )
+
         st.session_state.app_config["model"] = {
             "provider": provider,
             "name": model_name,
+            "allow_user_selection": allow_user_selection,
+            "allowed_models": allowed_models,
             "use_local_embeddings": True,
             "local_embedding_model": "all-MiniLM-L6-v2",
         }
@@ -381,6 +398,10 @@ def main():
             # Generate the secrets TOML
             secrets_toml = f"# AskLit Deployment Secrets\n"
             secrets_toml += f"{st.session_state.app_config['model']['provider'].upper()}_API_KEY = \"PASTE_YOUR_KEY_HERE\"\n\n"
+            if st.session_state.app_config["model"]["provider"] == "azure_apim":
+                secrets_toml += 'AZURE_APIM_BASE_URL = "https://YOUR-GATEWAY.azure-api.net/asklit"\n\n'
+                secrets_toml += '"limits.max_output_tokens_hard" = "4000"\n'
+                secrets_toml += '"limits.max_conversation_turns" = "30"\n\n'
 
             secrets_toml += f"# Identity & Access\n"
             secrets_toml += 'ADMIN_ROUTE = "manage"\n'

@@ -2,12 +2,52 @@ import litellm
 from asklit.config import get_api_key, get_setting, get_base_url
 
 
-def call_llm(messages, stream=True, max_tokens_override=None):
+def _get_positive_int_setting(key, default):
+    try:
+        value = int(get_setting(key, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(value, 1)
+
+
+def _bounded_max_tokens(max_tokens_override=None):
+    """Apply the configured server-side ceiling to every completion request."""
+    configured = _get_positive_int_setting("model.max_tokens", 1000)
+    requested = configured
+    if max_tokens_override is not None:
+        try:
+            requested = max(int(max_tokens_override), 1)
+        except (TypeError, ValueError):
+            requested = configured
+
+    hard_limit = _get_positive_int_setting("limits.max_output_tokens_hard", 4000)
+    return min(requested, hard_limit)
+
+
+def get_allowed_models():
+    """Return the configured model allowlist as a normalized list."""
+    configured = get_setting("model.allowed_models", "")
+    if isinstance(configured, str):
+        models = configured.split(",")
+    elif isinstance(configured, (list, tuple)):
+        models = configured
+    else:
+        models = []
+    return [str(model).strip() for model in models if str(model).strip()]
+
+
+def call_llm(messages, stream=True, max_tokens_override=None, model_override=None):
     """Call the configured LLM provider using LiteLLM."""
-    model = get_setting("model.name", "gpt-5-nano")
+    configured_model = get_setting("model.name", "gpt-5-nano")
+    model = str(model_override or configured_model).strip()
+    allowed_models = get_allowed_models()
+    if model_override and allowed_models and model not in allowed_models:
+        raise ValueError("The selected model is not enabled for this AskLit instance.")
+    if model_override and not allowed_models and model != str(configured_model):
+        raise ValueError("The selected model is not enabled for this AskLit instance.")
     provider = get_setting("model.provider", "openai")
     temperature = float(get_setting("model.temperature", 1.0))
-    max_tokens = int(max_tokens_override or get_setting("model.max_tokens", 1000))
+    max_tokens = _bounded_max_tokens(max_tokens_override)
     disable_temp_setting = get_setting("model.disable_temperature", "false") == "true"
 
     api_key = get_api_key(provider)
@@ -30,12 +70,17 @@ def call_llm(messages, stream=True, max_tokens_override=None):
         # Strip path for Azure SDK logic
         if base_url and "/openai/v1" in base_url:
             base_url = base_url.split("/openai/v1")[0]
-    elif provider == "openai" and base_url:
+    elif provider in {"openai", "azure_apim"} and base_url:
         # If using a custom base URL with OpenAI, force 'openai/' prefix
         # to ensure LiteLLM doesn't route to official OpenAI.
         # This works for Azure-as-OpenAI and other proxies.
         if not model.startswith("openai/"):
             model = f"openai/{model}"
+
+    if provider == "azure_apim" and (not api_key or not base_url):
+        raise RuntimeError(
+            "Azure APIM requires AZURE_APIM_API_KEY and AZURE_APIM_BASE_URL."
+        )
 
     completion_kwargs = {
         "model": model,
@@ -48,6 +93,13 @@ def call_llm(messages, stream=True, max_tokens_override=None):
 
     if temp_to_pass is not None:
         completion_kwargs["temperature"] = temp_to_pass
+
+    if provider == "azure_apim":
+        # APIM validates this gateway credential. The gateway removes the client
+        # Authorization header and authenticates to Foundry with managed identity.
+        completion_kwargs["extra_headers"] = {
+            "Ocp-Apim-Subscription-Key": api_key,
+        }
 
     if "gpt-5" in model_lower:
         completion_kwargs["reasoning_effort"] = get_setting(

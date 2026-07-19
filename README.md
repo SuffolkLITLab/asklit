@@ -19,7 +19,7 @@ Before you start, make sure you have:
 1.  **Launch the Scaffolder:** Open the "Project Scaffolder" tab in the sidebar of this app.
 2.  **Identity & Branding:** 
     *   Set your app title and welcome message.
-    *   **Custom Prompt:** Define how your AI should act (e.g., "You are a friendly librarian...").
+    *   **Prompt & Knowledge Base Pairings:** Define one or more prompts and the knowledge base each one should search.
     *   **Custom Branding:** Upload your own logo and favicon.
     *   *(Insert Screenshot: Scaffolder Step 1)*
 3.  **AI Configuration:** Choose your model provider (e.g., OpenAI) and the model name (e.g., `gpt-4o`).
@@ -77,6 +77,27 @@ You can override any branding element in secrets without redeploying:
 ---
 
 ## 🏗️ Advanced: Local Development
+
+### Multiple Prompt / Knowledge Base Pairings
+
+AskLit discovers every `.yml`, `.yaml`, and `.md` file under `prompts/`. If more than one prompt file exists, the chat sidebar shows a radio button for each prompt. YAML prompt files can connect a prompt to a knowledge base and, optionally, to a specific list of filenames:
+
+```yaml
+label: Housing
+knowledgebase:
+  name: housing
+  files:
+    - eviction_guide.pdf
+    - repairs.md
+
+prompt: |
+  You answer housing questions using the connected knowledge base.
+
+conversation starters:
+  - What should I know before court?
+```
+
+Leaving `files` empty connects the prompt to every indexed document in that knowledge base. Admins can edit prompt text, knowledge base names, and connected file lists after deployment.
 
 If you are a developer and want to run or modify AskLit locally:
 

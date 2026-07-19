@@ -5,6 +5,7 @@ import pandas as pd
 from asklit.db import get_connection
 from asklit.ingestion import extract_text, chunk_pages, get_content_hash
 from asklit.rag import add_document_to_index, delete_document_from_index
+from asklit.prompts import get_prompt_configs
 
 # st.set_page_config(page_title="Knowledge Base", page_icon="📚")
 
@@ -19,6 +20,15 @@ def main():
         st.stop()
 
     st.header("Upload Documents")
+    prompt_configs = get_prompt_configs()
+    knowledgebase_options = sorted(
+        {config["knowledgebase"] for config in prompt_configs} | {"default"}
+    )
+    selected_knowledgebase = st.selectbox(
+        "Knowledge Base",
+        knowledgebase_options,
+        help="Documents uploaded here are only searched by prompts connected to this knowledge base.",
+    )
     uploaded_files = st.file_uploader(
         "Choose files",
         accept_multiple_files=True,
@@ -48,9 +58,10 @@ def main():
                         conn = get_connection()
                         cursor = conn.cursor()
                         cursor.execute(
-                            "INSERT INTO documents (id, filename, file_path, file_type, file_size, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO documents (id, knowledgebase, filename, file_path, file_type, file_size, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 file_id,
+                                selected_knowledgebase,
                                 uploaded_file.name,
                                 file_path,
                                 ext,
@@ -78,7 +89,9 @@ def main():
                         conn.close()
 
                         # Add to ChromaDB (Heavy lifting done outside main transaction)
-                        add_document_to_index(file_id, chunks)
+                        add_document_to_index(
+                            file_id, chunks, knowledgebase=selected_knowledgebase
+                        )
 
                         # Update status to indexed
                         conn = get_connection()
@@ -99,7 +112,7 @@ def main():
 
     conn = get_connection()
     df = pd.read_sql_query(
-        "SELECT id, filename, file_path, file_type, status, created_at FROM documents",
+        "SELECT id, knowledgebase, filename, file_path, file_type, status, created_at FROM documents",
         conn,
     )
     conn.close()
@@ -144,7 +157,11 @@ def main():
                             )
 
                         # Add to ChromaDB
-                        add_document_to_index(row["id"], chunks)
+                        add_document_to_index(
+                            row["id"],
+                            chunks,
+                            knowledgebase=row.get("knowledgebase", "default"),
+                        )
                         conn.commit()
                         conn.close()
                     st.success("Successfully reindexed all documents!")
@@ -155,7 +172,7 @@ def main():
         for i, row in df.iterrows():
             col1, col2 = st.columns([4, 1])
             col1.write(
-                f"**{row['filename']}** ({row['file_type']}) - {row['created_at']}"
+                f"**{row['filename']}** ({row['file_type']}) - {row['knowledgebase']} - {row['created_at']}"
             )
             if col2.button("Delete", key=row["id"]):
                 with st.spinner("Deleting..."):

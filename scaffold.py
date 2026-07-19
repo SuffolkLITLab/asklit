@@ -7,6 +7,7 @@ import toml
 import uuid
 import requests
 import json
+import yaml
 from datetime import datetime
 from asklit.db import get_connection, init_db
 from asklit.ingestion import extract_text, chunk_pages, get_content_hash
@@ -52,9 +53,10 @@ def create_bundle(config_data, data_dir_source):
     # 2. Write the new defaults.toml
     config_path = os.path.join(temp_dir, "config", "defaults.toml")
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    # Remove 'prompt' from the toml data as it goes in the DB
+    # Prompt pairings are written as YAML files under prompts/.
     toml_data = config_data.copy()
-    system_prompt = toml_data.pop("prompt", "You are a helpful assistant.")
+    prompt_profiles = normalize_prompt_profiles(toml_data.pop("prompt_profiles", []))
+    toml_data.pop("prompt", None)
     with open(config_path, "w") as f:
         toml.dump(toml_data, f)
 
@@ -64,11 +66,27 @@ def create_bundle(config_data, data_dir_source):
         shutil.rmtree(dst_data_dir)
     shutil.copytree(data_dir_source, dst_data_dir)
 
-    # 4. Save the custom prompt into the exported database
-    exported_db_path = os.path.join(dst_data_dir, "app.sqlite3")
-    from asklit.prompts import save_new_prompt
-
-    save_new_prompt(system_prompt, db_path=exported_db_path)
+    # 4. Save prompt/knowledgebase pairings as deployable YAML configs.
+    prompts_dir = os.path.join(temp_dir, "prompts")
+    if os.path.exists(prompts_dir):
+        shutil.rmtree(prompts_dir)
+    os.makedirs(prompts_dir, exist_ok=True)
+    for profile in prompt_profiles:
+        prompt_path = os.path.join(prompts_dir, f"{profile['key']}.yml")
+        with open(prompt_path, "w") as f:
+            yaml.safe_dump(
+                {
+                    "label": profile["label"],
+                    "knowledgebase": {
+                        "name": profile["knowledgebase"],
+                        "files": profile["connected_files"],
+                    },
+                    "prompt": profile["prompt"],
+                    "conversation starters": profile["conversation_starters"],
+                },
+                f,
+                sort_keys=False,
+            )
 
     # 4. Create a .streamlit/config.toml (standard)
     st_config_dir = os.path.join(temp_dir, ".streamlit")
@@ -87,6 +105,61 @@ def create_bundle(config_data, data_dir_source):
         f.write("3. You're ready to go!\n")
 
     return temp_dir
+
+
+def slugify_key(value, fallback="default"):
+    value = "".join(char.lower() if char.isalnum() else "-" for char in value or "")
+    value = "-".join(part for part in value.split("-") if part)
+    return value or fallback
+
+
+def normalize_prompt_profiles(profiles):
+    if not profiles:
+        profiles = [
+            {
+                "key": "default",
+                "label": "Default",
+                "knowledgebase": "default",
+                "prompt": "You are a helpful assistant.",
+                "conversation_starters": [],
+                "connected_files": [],
+            }
+        ]
+
+    normalized = []
+    seen = set()
+    for index, profile in enumerate(profiles):
+        label = str(profile.get("label") or f"Prompt {index + 1}").strip()
+        key = slugify_key(profile.get("key") or label, "default")
+        if index == 0 and key == "default-system-prompt":
+            key = "default"
+        base_key = key
+        suffix = 2
+        while key in seen:
+            key = f"{base_key}-{suffix}"
+            suffix += 1
+        seen.add(key)
+        knowledgebase = str(profile.get("knowledgebase") or key).strip() or "default"
+        normalized.append(
+            {
+                "key": key,
+                "label": label,
+                "knowledgebase": knowledgebase,
+                "prompt": str(profile.get("prompt") or "You are a helpful assistant."),
+                "conversation_starters": [
+                    str(starter).strip()
+                    for starter in profile.get("conversation_starters", [])
+                    if str(starter).strip()
+                ],
+                "connected_files": [
+                    str(filename).strip()
+                    for filename in profile.get("connected_files", [])
+                    if str(filename).strip()
+                ],
+            }
+        )
+
+    return normalized
 
 
 def zip_directory(path, output_path):
@@ -157,6 +230,16 @@ def main():
                 "supplemental_footer_text": "",
                 "hide_asklit_badge": False,
             },
+            "prompt_profiles": [
+                {
+                    "key": "default",
+                    "label": "Default",
+                    "knowledgebase": "default",
+                    "prompt": "You are a helpful assistant.",
+                    "conversation_starters": [],
+                    "connected_files": [],
+                }
+            ],
         }
 
     # Sidebar Navigation
@@ -200,30 +283,88 @@ def main():
             help="Hide all management and setup pages in the deployed app.",
         )
 
-        st.subheader("AI Personality")
-        # System Prompt
-        current_prompt = st.session_state.app_config.get(
-            "prompt", "You are a helpful assistant."
+        st.subheader("Prompt & Knowledge Base Pairings")
+        st.session_state.app_config["prompt_profiles"] = normalize_prompt_profiles(
+            st.session_state.app_config.get("prompt_profiles")
         )
-        st.session_state.app_config["prompt"] = st.text_area(
-            "System Prompt",
-            current_prompt,
-            help="This defines how the AI behaves and its core instructions.",
-        )
+        if st.button("Add Prompt Pairing"):
+            next_number = len(st.session_state.app_config["prompt_profiles"]) + 1
+            st.session_state.app_config["prompt_profiles"].append(
+                {
+                    "key": f"prompt-{next_number}",
+                    "label": f"Prompt {next_number}",
+                    "knowledgebase": f"prompt-{next_number}",
+                    "prompt": "You are a helpful assistant.",
+                    "conversation_starters": [],
+                    "connected_files": [],
+                }
+            )
+            st.rerun()
 
-        # Conversation Starters
-        starters = st.session_state.app_config["app"].get("conversation_starters", [])
-        starters_text = "\n".join(
-            [s["label"] if isinstance(s, dict) else s for s in starters]
+        updated_profiles = []
+        for index, profile in enumerate(st.session_state.app_config["prompt_profiles"]):
+            with st.expander(profile["label"], expanded=index == 0):
+                label = st.text_input(
+                    "Navigation Label",
+                    profile["label"],
+                    key=f"profile_label_{index}",
+                )
+                key = st.text_input(
+                    "YAML Key",
+                    profile["key"],
+                    key=f"profile_key_{index}",
+                    help="Used for the prompt YAML filename and admin overrides.",
+                )
+                knowledgebase = st.text_input(
+                    "Knowledge Base Name",
+                    profile["knowledgebase"],
+                    key=f"profile_kb_{index}",
+                )
+                prompt = st.text_area(
+                    "System Prompt",
+                    profile["prompt"],
+                    key=f"profile_prompt_{index}",
+                    height=220,
+                )
+                starters_text = "\n".join(profile.get("conversation_starters", []))
+                starters = st.text_area(
+                    "Conversation Starters (one per line)",
+                    starters_text,
+                    key=f"profile_starters_{index}",
+                )
+                connected_files_text = "\n".join(profile.get("connected_files", []))
+                connected_files = st.text_area(
+                    "Connected Files",
+                    connected_files_text,
+                    key=f"profile_files_{index}",
+                    help="Optional. Leave blank to connect all files in this knowledge base.",
+                )
+                remove = len(
+                    st.session_state.app_config["prompt_profiles"]
+                ) > 1 and st.button("Remove Pairing", key=f"profile_remove_{index}")
+                if not remove:
+                    updated_profiles.append(
+                        {
+                            "key": key,
+                            "label": label,
+                            "knowledgebase": knowledgebase,
+                            "prompt": prompt,
+                            "conversation_starters": [
+                                line.strip()
+                                for line in starters.splitlines()
+                                if line.strip()
+                            ],
+                            "connected_files": [
+                                line.strip()
+                                for line in connected_files.splitlines()
+                                if line.strip()
+                            ],
+                        }
+                    )
+
+        st.session_state.app_config["prompt_profiles"] = normalize_prompt_profiles(
+            updated_profiles
         )
-        new_starters = st.text_area(
-            "Conversation Starters (one per line)",
-            starters_text,
-            help="Buttons that appear for new users to help them start a chat.",
-        )
-        st.session_state.app_config["app"]["conversation_starters"] = [
-            s.strip() for s in new_starters.splitlines() if s.strip()
-        ]
 
         st.subheader("Branding Assets")
         # File Uploaders for Branding
@@ -323,6 +464,21 @@ def main():
     elif step == "3. Knowledge":
         st.header("Step 3: Upload Knowledge")
         st.write("Upload the PDFs or documents you want your AI to know about.")
+        st.session_state.app_config["prompt_profiles"] = normalize_prompt_profiles(
+            st.session_state.app_config.get("prompt_profiles")
+        )
+        profile_labels = [
+            f"{profile['label']} ({profile['knowledgebase']})"
+            for profile in st.session_state.app_config["prompt_profiles"]
+        ]
+        selected_profile_index = st.selectbox(
+            "Attach uploaded files to",
+            range(len(profile_labels)),
+            format_func=lambda index: profile_labels[index],
+        )
+        selected_profile = st.session_state.app_config["prompt_profiles"][
+            selected_profile_index
+        ]
 
         uploaded_files = st.file_uploader(
             "Upload Documents",
@@ -359,9 +515,10 @@ def main():
                         conn = get_connection(db_path=db_path)
                         cursor = conn.cursor()
                         cursor.execute(
-                            "INSERT INTO documents (id, filename, file_path, file_type, file_size, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            "INSERT INTO documents (id, knowledgebase, filename, file_path, file_type, file_size, content_hash, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             (
                                 file_id,
+                                selected_profile["knowledgebase"],
                                 uploaded_file.name,
                                 f"data/uploads/{file_id}{ext}",
                                 ext,
@@ -382,7 +539,21 @@ def main():
                         conn.close()
 
                         # Add to Chroma
-                        add_document_to_index(file_id, chunks, chroma_path=chroma_path)
+                        add_document_to_index(
+                            file_id,
+                            chunks,
+                            chroma_path=chroma_path,
+                            knowledgebase=selected_profile["knowledgebase"],
+                        )
+                        if (
+                            uploaded_file.name
+                            not in st.session_state.app_config["prompt_profiles"][
+                                selected_profile_index
+                            ]["connected_files"]
+                        ):
+                            st.session_state.app_config["prompt_profiles"][
+                                selected_profile_index
+                            ]["connected_files"].append(uploaded_file.name)
 
                     st.success(f"Indexed {len(uploaded_files)} documents!")
 

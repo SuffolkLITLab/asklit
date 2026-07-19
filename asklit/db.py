@@ -50,6 +50,7 @@ def init_db(db_path=None):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS prompt_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        prompt_key TEXT NOT NULL DEFAULT 'default',
         content TEXT NOT NULL,
         is_active BOOLEAN DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -60,6 +61,7 @@ def init_db(db_path=None):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS documents (
         id TEXT PRIMARY KEY,
+        knowledgebase TEXT NOT NULL DEFAULT 'default',
         filename TEXT NOT NULL,
         file_path TEXT NOT NULL,
         file_type TEXT NOT NULL,
@@ -69,6 +71,27 @@ def init_db(db_path=None):
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
+
+    cursor.execute("PRAGMA table_info(prompt_versions)")
+    prompt_columns = {row[1] for row in cursor.fetchall()}
+    if "prompt_key" not in prompt_columns:
+        cursor.execute(
+            "ALTER TABLE prompt_versions ADD COLUMN prompt_key TEXT NOT NULL DEFAULT 'default'"
+        )
+
+    cursor.execute("PRAGMA table_info(documents)")
+    document_columns = {row[1] for row in cursor.fetchall()}
+    if "knowledgebase" not in document_columns:
+        cursor.execute(
+            "ALTER TABLE documents ADD COLUMN knowledgebase TEXT NOT NULL DEFAULT 'default'"
+        )
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_prompt_versions_key_active ON prompt_versions (prompt_key, is_active, created_at)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_knowledgebase ON documents (knowledgebase)"
+    )
 
     # Document Chunks
     cursor.execute("""

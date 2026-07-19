@@ -4,7 +4,7 @@ import re
 from asklit.auth import check_password
 from asklit.config import get_setting
 from asklit.rag import query_index
-from asklit.prompts import build_messages, get_conversation_starters
+from asklit.prompts import build_messages, get_conversation_starters, get_prompt_configs
 from asklit.llm import call_llm, estimate_tokens, get_allowed_models
 from asklit.rate_limits import (
     check_conversation_turn_limit,
@@ -178,6 +178,35 @@ def has_user_messages(messages):
     return any(message.get("role") == "user" for message in messages)
 
 
+def render_prompt_selector(prompt_configs):
+    if len(prompt_configs) <= 1:
+        return prompt_configs[0]
+
+    keys = [config["key"] for config in prompt_configs]
+    current_key = st.session_state.get("active_prompt_key", keys[0])
+    if current_key not in keys:
+        current_key = keys[0]
+
+    labels = {config["key"]: config["label"] for config in prompt_configs}
+    selected_key = st.sidebar.radio(
+        "AskLit",
+        keys,
+        format_func=lambda key: labels.get(key, key),
+        index=keys.index(current_key),
+    )
+    if selected_key != current_key:
+        st.session_state.active_prompt_key = selected_key
+        st.session_state.messages = []
+        st.session_state.conversation_id = str(uuid.uuid4())
+        st.rerun()
+
+    st.session_state.active_prompt_key = selected_key
+    for config in prompt_configs:
+        if config["key"] == selected_key:
+            return config
+    return prompt_configs[0]
+
+
 def render_model_selector():
     configured_model = str(get_setting("model.name", "gpt-5-nano"))
     selection_enabled = (
@@ -204,8 +233,8 @@ def render_model_selector():
     return selected_model
 
 
-def render_conversation_starters():
-    starters = get_conversation_starters()
+def render_conversation_starters(prompt_key=None):
+    starters = get_conversation_starters(prompt_key)
     if not starters:
         return None
 
@@ -243,6 +272,9 @@ def main():
             st.sidebar.image(logo_url, width=logo_width)
 
     st.sidebar.divider()
+    prompt_configs = get_prompt_configs()
+    active_prompt_config = render_prompt_selector(prompt_configs)
+    active_prompt_key = active_prompt_config["key"]
     active_model = render_model_selector()
 
     st.title(get_setting("app.title", "AskLit"))
@@ -268,7 +300,7 @@ def main():
 
     starter_prompt = None
     if turn_allowed and not has_user_messages(st.session_state.messages):
-        starter_prompt = render_conversation_starters()
+        starter_prompt = render_conversation_starters(active_prompt_key)
 
     # Chat input
     chat_prompt = st.chat_input("What is your question?", disabled=not turn_allowed)
@@ -299,7 +331,28 @@ def main():
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute("SELECT count(*) as count FROM documents")
+            connected_files = active_prompt_config.get("connected_files") or []
+            if connected_files:
+                placeholders = ",".join("?" for _ in connected_files)
+                cursor.execute(
+                    f"""
+                    SELECT count(*) as count
+                    FROM documents
+                    WHERE status = 'indexed'
+                    AND knowledgebase = ?
+                    AND filename IN ({placeholders})
+                    """,
+                    [active_prompt_config["knowledgebase"], *connected_files],
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT count(*) as count
+                    FROM documents
+                    WHERE status = 'indexed' AND knowledgebase = ?
+                    """,
+                    (active_prompt_config["knowledgebase"],),
+                )
             doc_count = cursor.fetchone()["count"]
             conn.close()
 
@@ -309,7 +362,11 @@ def main():
 
                     collection = get_collection()
                     if collection.count() > 0:
-                        context_chunks = query_index(prompt)
+                        context_chunks = query_index(
+                            prompt,
+                            knowledgebase=active_prompt_config["knowledgebase"],
+                            connected_files=connected_files,
+                        )
                     status.update(
                         label="Search complete!", state="complete", expanded=False
                     )
@@ -320,7 +377,10 @@ def main():
 
         # Build messages
         messages = build_messages(
-            prompt, context_chunks, st.session_state.messages[:-1]
+            prompt,
+            context_chunks,
+            st.session_state.messages[:-1],
+            prompt_key=active_prompt_key,
         )
 
         # Call LLM

@@ -22,6 +22,7 @@ def get_chroma_client(chroma_path=None):
 
 
 COLLECTION_NAME = "asklit_docs"
+DEFAULT_KNOWLEDGEBASE = "default"
 STOPWORDS = {
     "a",
     "about",
@@ -74,7 +75,9 @@ def get_collection(chroma_path=None):
     )
 
 
-def add_document_to_index(document_id, chunks, chroma_path=None):
+def add_document_to_index(
+    document_id, chunks, chroma_path=None, knowledgebase=DEFAULT_KNOWLEDGEBASE
+):
     collection = get_collection(chroma_path=chroma_path)
     # ...
 
@@ -83,6 +86,7 @@ def add_document_to_index(document_id, chunks, chroma_path=None):
     metadatas = [
         {
             "document_id": document_id,
+            "knowledgebase": knowledgebase or DEFAULT_KNOWLEDGEBASE,
             "page_number": chunk["page_number"],
             "chunk_index": chunk["chunk_index"],
         }
@@ -97,7 +101,36 @@ def delete_document_from_index(document_id):
     collection.delete(where={"document_id": document_id})
 
 
-def query_keyword_index(query_text, n_results=3):
+def resolve_document_filter(knowledgebase=None, connected_files=None):
+    knowledgebase = knowledgebase or DEFAULT_KNOWLEDGEBASE
+    connected_files = connected_files or []
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    if connected_files:
+        placeholders = ",".join("?" for _ in connected_files)
+        cursor.execute(
+            f"""
+            SELECT id FROM documents
+            WHERE status = 'indexed'
+              AND knowledgebase = ?
+              AND filename IN ({placeholders})
+            """,
+            [knowledgebase, *connected_files],
+        )
+    else:
+        cursor.execute(
+            "SELECT id FROM documents WHERE status = 'indexed' AND knowledgebase = ?",
+            (knowledgebase,),
+        )
+    document_ids = {row["id"] for row in cursor.fetchall()}
+    conn.close()
+    return document_ids
+
+
+def query_keyword_index(
+    query_text, n_results=3, knowledgebase=None, connected_files=None
+):
     terms = [
         term
         for term in re.findall(r"[a-zA-Z0-9]+", query_text.lower())
@@ -108,12 +141,23 @@ def query_keyword_index(query_text, n_results=3):
 
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
+    params = [knowledgebase or DEFAULT_KNOWLEDGEBASE]
+    files_clause = ""
+    if connected_files:
+        placeholders = ",".join("?" for _ in connected_files)
+        files_clause = f"AND d.filename IN ({placeholders})"
+        params.extend(connected_files)
+
+    cursor.execute(
+        f"""
         SELECT c.document_id, c.chunk_index, c.page_number, c.content
         FROM document_chunks c
         JOIN documents d ON d.id = c.document_id
-        WHERE d.status = 'indexed'
-    """)
+        WHERE d.status = 'indexed' AND d.knowledgebase = ?
+        {files_clause}
+        """,
+        params,
+    )
     rows = cursor.fetchall()
     conn.close()
 
@@ -147,22 +191,33 @@ def query_keyword_index(query_text, n_results=3):
     return scored[:n_results]
 
 
-def query_index(query_text, n_results=None):
+def query_index(query_text, n_results=None, knowledgebase=None, connected_files=None):
     if n_results is None:
         n_results = int(get_setting("retrieval.top_k", 5))
+    knowledgebase = knowledgebase or DEFAULT_KNOWLEDGEBASE
+    connected_files = connected_files or []
+    allowed_document_ids = resolve_document_filter(knowledgebase, connected_files)
+    if not allowed_document_ids:
+        return []
 
     collection = get_collection()
-    vector_n_results = max(n_results * 3, 10)
-    results = collection.query(query_texts=[query_text], n_results=vector_n_results)
+    vector_n_results = max(n_results * 6, 50)
+    query_kwargs = {"query_texts": [query_text], "n_results": vector_n_results}
+    if knowledgebase != DEFAULT_KNOWLEDGEBASE:
+        query_kwargs["where"] = {"knowledgebase": knowledgebase}
+    results = collection.query(**query_kwargs)
 
     # Format results
     vector_results = []
     if results["documents"]:
         for i in range(len(results["documents"][0])):
+            metadata = results["metadatas"][0][i]
+            if metadata.get("document_id") not in allowed_document_ids:
+                continue
             vector_results.append(
                 {
                     "content": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
+                    "metadata": metadata,
                     "distance": (
                         results["distances"][0][i] if "distances" in results else None
                     ),
@@ -171,7 +226,12 @@ def query_index(query_text, n_results=None):
                 }
             )
 
-    keyword_results = query_keyword_index(query_text, n_results=min(3, n_results))
+    keyword_results = query_keyword_index(
+        query_text,
+        n_results=min(3, n_results),
+        knowledgebase=knowledgebase,
+        connected_files=connected_files,
+    )
     combined_results = []
     seen = set()
 

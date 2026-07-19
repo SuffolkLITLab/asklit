@@ -3,6 +3,8 @@ from asklit.config import get_setting, set_setting
 from asklit.prompts import (
     get_active_prompt,
     get_conversation_starters,
+    get_prompt_configs,
+    save_prompt_metadata,
     save_conversation_starters,
     save_new_prompt,
 )
@@ -235,13 +237,44 @@ def main():
     with tab3:
         st.header("Prompt Engineering")
 
-        current_prompt = get_active_prompt()
+        prompt_configs = get_prompt_configs()
+        prompt_keys = [config["key"] for config in prompt_configs]
+        selected_key = st.selectbox(
+            "Prompt / Knowledge Base Pairing",
+            prompt_keys,
+            format_func=lambda key: next(
+                config["label"] for config in prompt_configs if config["key"] == key
+            ),
+        )
+        selected_config = next(
+            config for config in prompt_configs if config["key"] == selected_key
+        )
+        st.caption(
+            f"Knowledge base: {selected_config['knowledgebase']}"
+            + (
+                f" | Connected files: {', '.join(selected_config['connected_files'])}"
+                if selected_config["connected_files"]
+                else ""
+            )
+        )
+        knowledgebase = st.text_input(
+            "Knowledge Base Name",
+            value=selected_config["knowledgebase"],
+        )
+        connected_files = st.text_area(
+            "Connected Files",
+            value="\n".join(selected_config["connected_files"]),
+            height=120,
+            help="Optional. Leave blank to connect all indexed files in this knowledge base.",
+        )
+
+        current_prompt = get_active_prompt(selected_key)
         new_prompt = st.text_area(
             "Active System Prompt", value=current_prompt, height=400
         )
 
         current_starters = "\n".join(
-            starter["prompt"] for starter in get_conversation_starters()
+            starter["prompt"] for starter in get_conversation_starters(selected_key)
         )
         new_starters = st.text_area(
             "Conversation Starters",
@@ -251,8 +284,13 @@ def main():
         )
 
         if st.button("Update Prompt Settings"):
-            save_new_prompt(new_prompt)
-            save_conversation_starters(new_starters)
+            save_new_prompt(new_prompt, prompt_key=selected_key)
+            save_conversation_starters(new_starters, prompt_key=selected_key)
+            save_prompt_metadata(
+                knowledgebase,
+                connected_files,
+                prompt_key=selected_key,
+            )
             st.success("Prompt settings updated!")
 
 

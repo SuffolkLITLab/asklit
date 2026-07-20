@@ -2,6 +2,8 @@
 
 AskLit is a "no-code" factory for publishing high-quality AI chatbots grounded in your own documents. It is designed to be deployed to **Streamlit Community Cloud** in minutes by anyone, regardless of technical expertise.
 
+**New to GitHub, Streamlit, or knowledge-base authoring?** Follow the illustrated [beginner deployment guide](docs/deploy-to-streamlit/README.md). It explains how to write a prompt, prepare PDF/DOCX source files, use the scaffolder, keep secrets out of GitHub, and deploy the finished app. You can also see the [working Tulane demonstration repository](https://github.com/nonprofittechy/tulane-asklit-demo) and [live app](https://tulane-asklit-demo.streamlit.app/).
+
 For a more robust deployment, you can deploy it to fly.io or another inexpensive hosting option.
 
 ## 🚀 Quick Start: The Scaffolder

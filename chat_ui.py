@@ -208,7 +208,7 @@ def render_prompt_selector(prompt_configs):
 
 
 def render_model_selector():
-    configured_model = str(get_setting("model.name", "gpt-5-nano"))
+    configured_model = str(get_setting("model.name", "gpt-5.4-mini"))
     selection_enabled = (
         str(get_setting("model.allow_user_selection", "false")).lower() == "true"
     )

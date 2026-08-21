@@ -4,6 +4,13 @@ import toml
 import streamlit as st
 from asklit.db import get_connection
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 DEFAULT_CONFIG_PATH = os.path.join("config", "defaults.toml")
 _MISSING = object()
 
@@ -105,6 +112,15 @@ def get_api_key(provider):
 
 
 def get_base_url(provider):
-    """Retrieve custom base URL for a specific provider from secrets."""
+    """Retrieve a provider URL override from secrets or generated model config."""
     key_name = f"{provider.upper()}_BASE_URL"
-    return get_secret_value(key_name, None)
+    secret_url = get_secret_value(key_name, _MISSING)
+    if secret_url is not _MISSING and str(secret_url).strip():
+        return str(secret_url).strip()
+
+    configured_provider = str(get_setting("model.provider", "")).strip()
+    if str(provider).strip() == configured_provider:
+        configured_url = get_setting("model.base_url", None)
+        if configured_url and str(configured_url).strip():
+            return str(configured_url).strip()
+    return None

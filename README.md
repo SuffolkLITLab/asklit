@@ -8,7 +8,7 @@ For a more robust deployment, you can deploy it to fly.io or another inexpensive
 
 ## 🚀 Quick Start: The Scaffolder
 
-The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. This tool allows you to build your entire app—including your knowledge base and custom branding—right in your browser, then export it directly to GitHub.
+The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. Start in **Playground** mode to teach or explore prompt + knowledge-base design, then use its final Export step if you want to keep and deploy the project. **Builder** mode exposes the full branding, access-control, and model-configuration workflow from the beginning.
 
 ### 1. Requirements
 Before you start, make sure you have:
@@ -27,13 +27,21 @@ Before you start, make sure you have:
 3.  **AI Configuration:** Choose your model provider (e.g., OpenAI) and the model name (the default is `gpt-5.4-mini`).
 4.  **Knowledge Upload:** Drag and drop your PDFs, Word docs, or Text files. The tool will chunk and embed them locally so you can see your knowledge base built in real-time.
     *   *(Insert Screenshot: Scaffolder Step 3)*
-5.  **Experiment Lab:** Enter one representative question, select prompts, knowledge bases, and models, then compare the answers, retrieved passages, latency, and approximate tokens. The lab runs every selected combination and does not add experiment history to the exported app.
+5.  **Experiment Lab:** Create gold-labeled scenarios in an editable Streamlit table, generate grounded scenarios with AI, or upload a Promptfoo-style CSV using `input` (or `question`/`query`) and `__expected` columns. Run all scenarios against one model or use matrix mode to cross scenarios, prompts, knowledge bases, and models. Results appear in a sortable, filterable table with answers, grades, sources, latency, and approximate tokens. Experiment history is not added to the exported app.
+    *   Plain `__expected` values use exact matching. The lab also evaluates `contains:`, `icontains:`, `contains-any:`, `icontains-any:`, `contains-all:`, and `icontains-all:` assertions. Other Promptfoo assertion types remain visible and are marked ungraded.
+    *   Download the complete, unfiltered evaluation table as CSV after a run.
     *   AskLit identifies Azure AI and APIM URLs even when they use the `openai` provider alias. For small OpenAI-compatible `/models` responses, the lab shows the returned models directly. Azure `/models` responses are treated as catalog entries—not proof of deployment—so Azure experiments use the configured deployment allowlist instead.
     *   For a different Azure account, set `"model.allowed_models"` in Streamlit secrets or `MODEL_ALLOWED_MODELS` in `.env` to the deployment names that account actually exposes.
 6.  **Export & Deploy:**
     *   **Connect GitHub:** Click the button, enter AskLit's one-time code on GitHub, and approve repository access.
     *   **Secrets Generator:** Copy the pre-formatted TOML block from **Deployment Settings & Secrets**. Passwords entered in the Identity step are hashed automatically and inserted into this block.
     *   **Push:** Click "Create Repo & Push". This creates a public repository by default with your settings and documents pre-indexed. Select the private-repository checkbox first if your Streamlit plan supports private repositories.
+
+At any point, open **Save or resume** in the sidebar to download a workspace YAML file. It contains app settings, prompts, knowledge-base pairings, and evaluation scenarios, but never API keys, uploaded file contents, vector indexes, or generated evaluation answers. Importing it later starts fresh isolated storage and lists the documents or branding images that need to be uploaded again.
+
+### Classroom concurrency
+
+The hosted scaffolder isolates every browser session in its own UUID-named SQLite database, upload directory, and Chroma index. To accommodate a class of about 20 simultaneous users without overwhelming the host or model gateway, AskLit queues outbound completions at eight concurrent calls and local embedding work at two concurrent jobs by default. SQLite uses WAL mode and a busy timeout for shared diagnostic writes, and uploads are capped at 10 MB per file. Operators can tune `limits.max_concurrent_llm_calls`, `limits.llm_queue_timeout_seconds`, `limits.max_concurrent_embedding_jobs`, and `limits.embedding_queue_timeout_seconds` in configuration.
 
 ---
 

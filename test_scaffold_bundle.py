@@ -10,6 +10,55 @@ def test_production_runtime_entrypoint_has_no_scaffolder_page_reference():
     assert "scaffold.py" not in runtime_app.read_text(encoding="utf-8")
 
 
+def test_workspace_yaml_round_trip_excludes_secrets_and_binary_state():
+    workspace_yaml = scaffold.export_workspace_yaml(
+        {
+            "app": {"title": "Class project"},
+            "model": {"name": "test-model", "api_key": "must-not-serialize"},
+            "branding": {
+                "logo_url": "data/assets/uploaded-logo.png",
+                "homepage_url": "https://example.org",
+            },
+            "prompt_profiles": [
+                {
+                    "key": "housing",
+                    "label": "Housing",
+                    "knowledgebase": "housing",
+                    "prompt": "Use the housing guide.",
+                    "connected_files": ["housing-guide.pdf"],
+                }
+            ],
+        },
+        [
+            {
+                "input": "What should I do?",
+                "__expected": "icontains:notice",
+                "__description": "Notice",
+            }
+        ],
+    )
+
+    assert "must-not-serialize" not in workspace_yaml
+    imported = scaffold.import_workspace_yaml(workspace_yaml)
+    assert imported["app_config"]["app"]["title"] == "Class project"
+    assert imported["app_config"]["prompt_profiles"][0]["connected_files"] == []
+    assert imported["source_files_to_reupload"] == ["housing-guide.pdf"]
+    assert imported["uploaded_assets_to_reupload"] == ["uploaded-logo.png"]
+    assert "logo_url" not in imported["app_config"]["branding"]
+    assert imported["evaluation_scenarios"][0]["input"] == "What should I do?"
+
+
+def test_workspace_yaml_rejects_unknown_schema():
+    try:
+        scaffold.import_workspace_yaml(
+            "asklit_workspace:\n  schema_version: 999\n  app_config: {}\n"
+        )
+    except ValueError as exc:
+        assert "version" in str(exc).lower()
+    else:
+        raise AssertionError("Expected an unknown workspace schema to be rejected")
+
+
 def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_path):
     source_root = tmp_path / "source"
     source_root.mkdir()
@@ -57,7 +106,7 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
 
     session_data = tmp_path / "session-data"
     session_data.mkdir()
-    (session_data / "app.sqlite3").write_bytes(b"database")
+    scaffold.init_db(str(session_data / "app.sqlite3"))
     monkeypatch.setattr(scaffold, "__file__", str(source_root / "scaffold.py"))
 
     bundle = Path(
@@ -81,6 +130,8 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
     assert (bundle / "admin" / "settings.py").exists()
     assert (bundle / "asklit" / "config.py").exists()
     assert (bundle / "data" / "app.sqlite3").exists()
+    assert not list((bundle / "data").glob("*-wal"))
+    assert not list((bundle / "data").glob("*-shm"))
     assert (bundle / "prompts" / "default.yml").exists()
     assert not list(bundle.rglob("__pycache__"))
     assert not list(bundle.rglob("*.pyc"))
@@ -114,6 +165,9 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
         scaffold.RUNTIME_ASKLIT_MODULES
     )
     assert "scaffold.py" not in (bundle / "app.py").read_text(encoding="utf-8")
+    assert "maxUploadSize = 10" in (bundle / ".streamlit" / "config.toml").read_text(
+        encoding="utf-8"
+    )
     generated_config = scaffold.toml.load(bundle / "config" / "defaults.toml")
     assert generated_config["model"]["base_url"] == "https://models.example/v1"
     assert "api_key" not in generated_config["model"]
@@ -185,6 +239,5 @@ def test_deployment_secrets_include_selected_apim_gateway_url():
     )
 
     assert (
-        'AZURE_APIM_BASE_URL = "https://custom-gateway.azure-api.net/asklit"'
-        in output
+        'AZURE_APIM_BASE_URL = "https://custom-gateway.azure-api.net/asklit"' in output
     )

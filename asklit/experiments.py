@@ -190,6 +190,14 @@ def evaluate_expected(output, expected):
     if match:
         assertion_type, assertion_value = match.group(1).lower(), match.group(2)
 
+    if assertion_type in {"llm-rubric", "model-rubric", "rubric"}:
+        return {
+            "passed": None,
+            "score": None,
+            "reason": "Model rubric (judge required)",
+            "rubric": assertion_value.strip(),
+        }
+
     normalized_output = " ".join(output.split())
     normalized_value = " ".join(assertion_value.split())
     if assertion_type == "equals":
@@ -228,6 +236,76 @@ def evaluate_expected(output, expected):
         "passed": passed,
         "score": 1.0 if passed else 0.0,
         "reason": assertion_type,
+    }
+
+
+def is_model_rubric(expected):
+    """Return whether a gold label delegates grading to an LLM judge."""
+    return bool(
+        re.match(
+            r"^(?:llm-rubric|model-rubric|rubric)\s*:\s*.+$",
+            str(expected or "").strip(),
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    )
+
+
+def rubric_text(expected):
+    """Extract the human-readable rubric from an LLM assertion."""
+    match = re.match(
+        r"^(?:llm-rubric|model-rubric|rubric)\s*:\s*(.+)$",
+        str(expected or "").strip(),
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def build_rubric_judge_messages(question, answer, rubric):
+    """Build a constrained JSON request for a model-graded rubric."""
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are an evaluation judge. Grade the answer against the rubric. "
+                "Return only a JSON object with numeric score from 0 to 1, boolean "
+                "passed, and a short reason. Pass means the answer substantially "
+                "satisfies all listed rubric rules; do not require exact wording."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"QUESTION:\n{question}\n\nANSWER:\n{answer}\n\n"
+                f"RUBRIC:\n{rubric}"
+            ),
+        },
+    ]
+
+
+def parse_rubric_grade(text, pass_threshold=0.7):
+    """Parse a judge response and normalize it to AskLit's grade shape."""
+    value = str(text or "").strip()
+    fenced = re.search(
+        r"```(?:json)?\s*(.*?)```", value, flags=re.IGNORECASE | re.DOTALL
+    )
+    if fenced:
+        value = fenced.group(1).strip()
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("The rubric judge did not return valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("The rubric judge response must be a JSON object.")
+    try:
+        score = max(0.0, min(1.0, float(payload["score"])))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("The rubric judge response needs a numeric score.") from exc
+    passed = score >= pass_threshold
+    reason = str(payload.get("reason") or "Model rubric").strip()
+    return {
+        "passed": passed,
+        "score": score,
+        "reason": f"Model rubric: {reason}",
     }
 
 

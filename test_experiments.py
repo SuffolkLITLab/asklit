@@ -4,9 +4,12 @@ from asklit.experiments import (
     build_evaluation_matrix,
     build_experiment_matrix,
     build_experiment_messages,
+    build_rubric_judge_messages,
     evaluate_expected,
+    is_model_rubric,
     parse_generated_scenarios,
     parse_model_names,
+    parse_rubric_grade,
     parse_scenario_csv,
     response_text,
     scenarios_to_csv,
@@ -112,9 +115,32 @@ def test_supported_gold_assertions_are_transparent_and_deterministic():
     assert evaluate_expected("The Answer is Boston.", "icontains:boston")["passed"]
     assert evaluate_expected("red and blue", "contains-all:red,blue")["passed"]
     assert not evaluate_expected("red", "contains-all:red,blue")["passed"]
-    unsupported = evaluate_expected("anything", "llm-rubric:Be correct")
+    unsupported = evaluate_expected("anything", "judge-unknown:Be correct")
     assert unsupported["passed"] is None
-    assert unsupported["reason"] == "Unsupported assertion: llm-rubric"
+    assert unsupported["reason"] == "Unsupported assertion: judge-unknown"
+
+
+def test_model_rubric_assertion_is_explicit_and_parseable():
+    expected = "llm-rubric:Explains the next step and acknowledges uncertainty"
+    assert is_model_rubric(expected)
+    pending = evaluate_expected("Any answer", expected)
+    assert pending["passed"] is None
+    assert pending["reason"] == "Model rubric (judge required)"
+    assert parse_rubric_grade(
+        '{"score": 0.8, "passed": true, "reason": "Meets both criteria"}'
+    ) == {"passed": True, "score": 0.8, "reason": "Model rubric: Meets both criteria"}
+    assert parse_rubric_grade(
+        '{"score": 0.6, "passed": true, "reason": "Partial"}'
+    )["passed"] is False
+
+
+def test_rubric_judge_messages_include_all_grading_inputs():
+    messages = build_rubric_judge_messages(
+        "What should I do?", "Tell the landlord in writing.", "Names a practical next step"
+    )
+    assert "What should I do?" in messages[1]["content"]
+    assert "Tell the landlord" in messages[1]["content"]
+    assert "Names a practical next step" in messages[1]["content"]
 
 
 def test_generated_scenarios_accept_fenced_json():

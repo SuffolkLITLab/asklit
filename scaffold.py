@@ -17,10 +17,14 @@ from asklit.db import get_connection, init_db
 from asklit.experiments import (
     build_evaluation_matrix,
     build_experiment_messages,
+    build_rubric_judge_messages,
     evaluate_expected,
+    is_model_rubric,
     normalize_scenario_rows,
     parse_generated_scenarios,
     parse_model_names,
+    parse_rubric_grade,
+    rubric_text,
     parse_scenario_csv,
     response_text,
     scenarios_to_csv,
@@ -39,7 +43,7 @@ from asklit.models import (
     discover_available_models,
     normalize_openai_base_url,
 )
-from asklit.observability import log_ai_call_event
+from asklit.observability import log_ai_call_event, safe_error_message
 from asklit.rag import add_document_to_index, query_index
 from asklit.ui import escape_html, safe_url
 
@@ -702,7 +706,8 @@ def render_experiment_lab(playground=False):
                 width="large",
                 help=(
                     "Plain text means exact match. Also supports contains:, icontains:, "
-                    "contains-any:, and contains-all:."
+                    "contains-any:, contains-all:, and llm-rubric:criteria. "
+                    "Rubric labels use the selected judge model."
                 ),
             ),
             "__description": st.column_config.TextColumn("Description", width="medium"),
@@ -848,6 +853,38 @@ def render_experiment_lab(playground=False):
             model_names = st.text_area(
                 "Models (one per line or comma-separated)", value=default_model
             )
+    rubric_scenarios = [
+        scenario
+        for scenario in st.session_state.evaluation_scenarios
+        if is_model_rubric(scenario.get("__expected", ""))
+    ]
+    judge_model = ""
+    if rubric_scenarios:
+        st.info(
+            "This scenario set includes model-graded rubrics. Use "
+            "llm-rubric:your criteria in the Gold label column. The judge "
+            "model grades the answer on a 0–1 scale; 0.70 or higher passes."
+        )
+        if model_choices:
+            judge_model = st.selectbox(
+                "Judge model",
+                model_choices,
+                index=model_choices.index(default_model),
+                help=(
+                    "The judge is called separately for each rubric scenario. "
+                    "Choose a capable model, and remember that judge calls add cost."
+                ),
+            )
+        else:
+            judge_model = st.text_input(
+                "Judge model",
+                value=default_model,
+                help=(
+                    "The judge is called separately for each rubric scenario. "
+                    "Judge calls add cost."
+                ),
+            )
+
     top_k = st.slider("Retrieved passages per run", 1, 10, 5)
 
     matrix = build_evaluation_matrix(
@@ -858,12 +895,23 @@ def render_experiment_lab(playground=False):
         st.session_state.evaluation_scenarios,
     )
     run_count = len(matrix)
+    judge_run_count = run_count if rubric_scenarios else 0
     if run_count:
-        st.caption(f"{run_count} model call{'s' if run_count != 1 else ''} will run.")
+        call_summary = f"{run_count} answer model call{'s' if run_count != 1 else ''}"
+        if judge_run_count:
+            call_summary += (
+                f" + {judge_run_count} judge call{'s' if judge_run_count != 1 else ''}"
+            )
+        st.caption(call_summary + " will run.")
     if run_count > 60:
         st.error("Reduce the matrix to 60 model calls or fewer.")
 
-    can_run = bool(matrix and run_count <= 60 and provider_ready)
+    can_run = bool(
+        matrix
+        and run_count <= 60
+        and provider_ready
+        and (not rubric_scenarios or judge_model)
+    )
     if st.button("Run evaluation", type="primary", disabled=not can_run):
         experiment_run_id = str(uuid.uuid4())
         db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
@@ -955,6 +1003,29 @@ def render_experiment_lab(playground=False):
                 if error
                 else evaluate_expected(answer, scenario.get("__expected", ""))
             )
+            expected = scenario.get("__expected", "")
+            if error is None and is_model_rubric(expected):
+                try:
+                    judge_response = call_llm(
+                        build_rubric_judge_messages(
+                            question, answer, rubric_text(expected)
+                        ),
+                        stream=False,
+                        max_tokens_override=300,
+                        model_override=judge_model,
+                        provider_override=provider,
+                        enforce_model_allowlist=False,
+                    )
+                    grade = parse_rubric_grade(response_text(judge_response))
+                except Exception as exc:
+                    grade = {
+                        "passed": None,
+                        "score": None,
+                        "reason": "Model rubric judge failed",
+                    }
+                    error = exc
+                    safe_error = safe_error_message(exc)
+                    failure_stage = "judge"
 
             results.append(
                 {
@@ -968,6 +1039,8 @@ def render_experiment_lab(playground=False):
                     "input": question,
                     "expected": scenario.get("__expected", ""),
                     "answer": answer,
+                    "grader": "model rubric" if is_model_rubric(expected) else "deterministic",
+                    "judge_model": judge_model if is_model_rubric(expected) else "",
                     "passed": grade["passed"],
                     "score": grade["score"],
                     "grade_reason": grade["reason"],
@@ -1044,6 +1117,8 @@ def render_experiment_lab(playground=False):
                     "Knowledge base": result["knowledgebase_label"],
                     "Model": result["model"],
                     "Provider": result["provider"],
+                    "Grader": result.get("grader", "deterministic"),
+                    "Judge model": result.get("judge_model", ""),
                     "Gold label": result["expected"],
                     "Answer": result["answer"],
                     "Grade": result["grade_reason"],
@@ -1081,6 +1156,8 @@ def render_experiment_lab(playground=False):
                 "Prompt",
                 "Knowledge base",
                 "Model",
+                "Grader",
+                "Judge model",
                 "Gold label",
                 "Answer",
                 "Grade",

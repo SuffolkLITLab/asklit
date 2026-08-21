@@ -1178,7 +1178,7 @@ def render_experiment_lab(playground=False):
                     "Judge model": result.get("judge_model", ""),
                     "Gold label": result["expected"],
                     "Answer": result["answer"],
-                    "Grade": result["grade_reason"],
+                    "Judge rationale": result["grade_reason"],
                     "Score": result["score"],
                     "Latency (s)": round(result["elapsed"], 2),
                     "Approx. tokens": result["tokens"],
@@ -1189,6 +1189,40 @@ def render_experiment_lab(playground=False):
                     "Error": result["error"] or "",
                 }
             )
+        summary_rows = []
+        grouped = {}
+        for result in results:
+            key = (result["prompt_label"], result["model"])
+            bucket = grouped.setdefault(key, {"runs": 0, "graded": 0, "passed": 0})
+            bucket["runs"] += 1
+            if result["passed"] is not None:
+                bucket["graded"] += 1
+            if result["passed"] is True:
+                bucket["passed"] += 1
+        for (prompt_label, model), bucket in sorted(grouped.items()):
+            summary_rows.append(
+                {
+                    "Prompt": prompt_label,
+                    "Model": model,
+                    "Runs": bucket["runs"],
+                    "Graded": bucket["graded"],
+                    "Passed": bucket["passed"],
+                    "Pass rate": (
+                        bucket["passed"] / bucket["graded"]
+                        if bucket["graded"]
+                        else None
+                    ),
+                }
+            )
+        st.subheader("Pass rate by prompt × model")
+        st.dataframe(
+            pd.DataFrame(summary_rows),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Pass rate": st.column_config.NumberColumn(format="%.0%"),
+            },
+        )
         st.download_button(
             "Download all evaluation results as CSV",
             pd.DataFrame(all_table_rows).to_csv(index=False),
@@ -1202,8 +1236,18 @@ def render_experiment_lab(playground=False):
             and (not model_filter or row["Model"] in model_filter)
             and (not outcome_filter or row["Outcome"] in outcome_filter)
         ]
+        result_frame = pd.DataFrame(table_rows)
+        def highlight_outcome(row):
+            color = {
+                "Pass": "background-color: #e8f5e9",
+                "Fail": "background-color: #ffebee",
+                "Error": "background-color: #fff3e0",
+            }.get(row.get("Outcome", ""), "")
+            return [color] * len(row)
+
+        styled_result_frame = result_frame.style.apply(highlight_outcome, axis=1)
         st.dataframe(
-            pd.DataFrame(table_rows),
+            styled_result_frame,
             hide_index=True,
             width="stretch",
             column_order=[
@@ -1217,7 +1261,8 @@ def render_experiment_lab(playground=False):
                 "Judge model",
                 "Gold label",
                 "Answer",
-                "Grade",
+                "Score",
+                "Judge rationale",
                 "Latency (s)",
                 "Approx. tokens",
                 "Sources",
@@ -1227,6 +1272,7 @@ def render_experiment_lab(playground=False):
                 "Answer": st.column_config.TextColumn(width="large"),
                 "Input": st.column_config.TextColumn(width="large"),
                 "Gold label": st.column_config.TextColumn(width="medium"),
+                "Score": st.column_config.NumberColumn(format="%.2f"),
                 "Latency (s)": st.column_config.NumberColumn(format="%.2f"),
             },
         )

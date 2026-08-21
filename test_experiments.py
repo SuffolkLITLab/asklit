@@ -132,6 +132,9 @@ def test_model_rubric_assertion_is_explicit_and_parseable():
     assert parse_rubric_grade(
         '{"score": 0.6, "passed": true, "reason": "Partial"}'
     )["passed"] is False
+    assert parse_rubric_grade(
+        '{"score": 0.9, "narrative": "Clear and grounded"}'
+    )["reason"] == "Model rubric: Clear and grounded"
 
 
 def test_rubric_judge_messages_include_all_grading_inputs():

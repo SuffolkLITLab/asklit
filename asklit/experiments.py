@@ -267,9 +267,11 @@ def build_rubric_judge_messages(question, answer, rubric):
             "role": "system",
             "content": (
                 "You are an evaluation judge. Grade the answer against the rubric. "
-                "Return only a JSON object with numeric score from 0 to 1, boolean "
-                "passed, and a short reason. Pass means the answer substantially "
-                "satisfies all listed rubric rules; do not require exact wording."
+                "Return only a JSON object with numeric score from 0 to 1 and a "
+                "short narrative explanation in the reason field. Pass means the "
+                "answer substantially satisfies all listed rubric rules; do not "
+                "require exact wording. The application determines pass/fail from "
+                "the score, so do not omit score."
             ),
         },
         {
@@ -301,7 +303,13 @@ def parse_rubric_grade(text, pass_threshold=0.7):
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("The rubric judge response needs a numeric score.") from exc
     passed = score >= pass_threshold
-    reason = str(payload.get("reason") or "Model rubric").strip()
+    reason = str(
+        payload.get("reason")
+        or payload.get("rationale")
+        or payload.get("narrative")
+        or payload.get("explanation")
+        or "Model rubric"
+    ).strip()
     return {
         "passed": passed,
         "score": score,

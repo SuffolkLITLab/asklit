@@ -125,7 +125,7 @@ def sanitize_export_config(value):
     return value
 
 
-def export_workspace_yaml(config_data, scenarios):
+def export_workspace_yaml(config_data, scenarios, evaluation_rubrics=None):
     """Serialize resumable scaffolder fields without credentials or binary data."""
     safe_config = sanitize_export_config(config_data)
     profiles = normalize_prompt_profiles(safe_config.get("prompt_profiles"))
@@ -152,6 +152,11 @@ def export_workspace_yaml(config_data, scenarios):
             "exported_at": datetime.now(UTC).isoformat(),
             "app_config": safe_config,
             "evaluation_scenarios": normalize_scenario_rows(scenarios),
+            "evaluation_rubrics": [
+                str(rubric).strip()
+                for rubric in (evaluation_rubrics or [])
+                if str(rubric).strip()
+            ],
             "source_files_to_reupload": source_files,
             "uploaded_assets_to_reupload": uploaded_assets,
         }
@@ -188,6 +193,11 @@ def import_workspace_yaml(value):
     scenarios = workspace.get("evaluation_scenarios", [])
     if not isinstance(scenarios, list):
         raise ValueError("The workspace scenarios must be a list.")
+    rubrics = workspace.get("evaluation_rubrics", [])
+    if not isinstance(rubrics, list) or not all(
+        isinstance(rubric, str) for rubric in rubrics
+    ):
+        raise ValueError("The workspace rubrics must be a list of strings.")
 
     safe_config = sanitize_export_config(config_data)
     safe_config["prompt_profiles"] = normalize_prompt_profiles(
@@ -217,6 +227,7 @@ def import_workspace_yaml(value):
     return {
         "app_config": safe_config,
         "evaluation_scenarios": normalize_scenario_rows(scenarios),
+        "evaluation_rubrics": [rubric.strip() for rubric in rubrics if rubric.strip()],
         "source_files_to_reupload": sorted(source_files, key=str.casefold),
         "uploaded_assets_to_reupload": sorted(uploaded_assets, key=str.casefold),
     }
@@ -677,8 +688,22 @@ def render_experiment_lab(playground=False):
             "Use a rubric when equivalent wording should receive credit. Rubric "
             "grading makes an additional model call for every scenario × prompt × "
             "model combination, so start with a small set and review the judge "
-            "rationale before trusting the pass rate."
+            "rationale before trusting the pass rate. For rules that apply to every "
+            "row, add one rule per line in the shared-rubrics box below."
         )
+        shared_rubrics = st.text_area(
+            "Shared rubrics (one rule per line)",
+            value="\n".join(st.session_state.get("evaluation_rubrics", [])),
+            key="evaluation_shared_rubrics",
+            height=100,
+            help=(
+                "Advanced: these rules apply to every scenario in this evaluation. "
+                "Leave blank to use only each row's Gold label column."
+            ),
+        )
+        st.session_state.evaluation_rubrics = [
+            line.strip() for line in shared_rubrics.splitlines() if line.strip()
+        ]
     if "evaluation_scenarios" not in st.session_state:
         st.session_state.evaluation_scenarios = [
             {
@@ -872,17 +897,19 @@ def render_experiment_lab(playground=False):
             model_names = st.text_area(
                 "Models (one per line or comma-separated)", value=default_model
             )
-    rubric_scenarios = [
+    row_rubric_scenarios = [
         scenario
         for scenario in st.session_state.evaluation_scenarios
         if is_model_rubric(scenario.get("__expected", ""))
     ]
+    has_shared_rubrics = bool(st.session_state.evaluation_rubrics)
+    rubric_scenarios = row_rubric_scenarios or ([{}] if has_shared_rubrics else [])
     judge_model = ""
     if rubric_scenarios:
         st.info(
-            "This scenario set includes model-graded rubrics. Use "
-            "llm-rubric:your criteria in the Gold label column. The judge "
-            "model grades the answer on a 0–1 scale; 0.70 or higher passes."
+            "Model-graded rubrics are enabled. The judge applies "
+            f"{len(st.session_state.evaluation_rubrics)} shared rule(s) plus any "
+            "row-level llm-rubric labels. A 0.70 or higher score passes."
         )
         if model_choices:
             judge_model = st.selectbox(
@@ -890,7 +917,7 @@ def render_experiment_lab(playground=False):
                 model_choices,
                 index=model_choices.index(default_model),
                 help=(
-                    "The judge is called separately for each rubric scenario. "
+                    "The judge is called separately for each rubric-enabled scenario. "
                     "Choose a capable model, and remember that judge calls add cost."
                 ),
             )
@@ -899,7 +926,7 @@ def render_experiment_lab(playground=False):
                 "Judge model",
                 value=default_model,
                 help=(
-                    "The judge is called separately for each rubric scenario. "
+                    "The judge is called separately for each rubric-enabled scenario. "
                     "Judge calls add cost."
                 ),
             )
@@ -914,7 +941,12 @@ def render_experiment_lab(playground=False):
         st.session_state.evaluation_scenarios,
     )
     run_count = len(matrix)
-    judge_run_count = run_count if rubric_scenarios else 0
+    judge_run_count = sum(
+        1
+        for combination in matrix
+        if has_shared_rubrics
+        or is_model_rubric(combination["scenario"].get("__expected", ""))
+    )
     if run_count:
         call_summary = f"{run_count} answer model call{'s' if run_count != 1 else ''}"
         if judge_run_count:
@@ -1023,11 +1055,18 @@ def render_experiment_lab(playground=False):
                 else evaluate_expected(answer, scenario.get("__expected", ""))
             )
             expected = scenario.get("__expected", "")
-            if error is None and is_model_rubric(expected):
+            row_rubric = rubric_text(expected) if is_model_rubric(expected) else ""
+            rubric_rules = [
+                *st.session_state.get("evaluation_rubrics", []),
+                *([row_rubric] if row_rubric else []),
+            ]
+            if error is None and rubric_rules:
                 try:
                     judge_response = call_llm(
                         build_rubric_judge_messages(
-                            question, answer, rubric_text(expected)
+                            question,
+                            answer,
+                            "\n".join(f"- {rule}" for rule in rubric_rules),
                         ),
                         stream=False,
                         max_tokens_override=300,
@@ -1058,8 +1097,8 @@ def render_experiment_lab(playground=False):
                     "input": question,
                     "expected": scenario.get("__expected", ""),
                     "answer": answer,
-                    "grader": "model rubric" if is_model_rubric(expected) else "deterministic",
-                    "judge_model": judge_model if is_model_rubric(expected) else "",
+                    "grader": "model rubric" if rubric_rules else "deterministic",
+                    "judge_model": judge_model if rubric_rules else "",
                     "passed": grade["passed"],
                     "score": grade["score"],
                     "grade_reason": grade["reason"],
@@ -1316,6 +1355,7 @@ def render_workspace_controls(playground):
         workspace_yaml = export_workspace_yaml(
             st.session_state.app_config,
             st.session_state.get("evaluation_scenarios", []),
+            st.session_state.get("evaluation_rubrics", []),
         )
         st.download_button(
             "Download workspace YAML",
@@ -1341,6 +1381,7 @@ def render_workspace_controls(playground):
                     default_scaffold_config(playground), imported["app_config"]
                 )
                 scenarios = imported["evaluation_scenarios"]
+                rubrics = imported.get("evaluation_rubrics", [])
                 source_files = imported["source_files_to_reupload"]
                 uploaded_assets = imported["uploaded_assets_to_reupload"]
                 st.query_params["workspace_mode"] = (
@@ -1350,6 +1391,7 @@ def render_workspace_controls(playground):
                 initialize_scaffold_storage()
                 st.session_state.app_config = imported_config
                 st.session_state.evaluation_scenarios = scenarios
+                st.session_state.evaluation_rubrics = rubrics
                 st.session_state.workspace_source_files = source_files
                 st.session_state.workspace_uploaded_assets = uploaded_assets
                 st.session_state.workspace_imported = True

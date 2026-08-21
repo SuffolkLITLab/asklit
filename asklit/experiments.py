@@ -269,7 +269,7 @@ def build_rubric_judge_messages(question, answer, rubric):
                 "You are an evaluation judge. Grade the answer against the rubric. "
                 "Return only a JSON object with numeric score from 0 to 1, boolean "
                 "passed, and a short reason. Pass means the answer substantially "
-                "satisfies the rubric; do not require exact wording."
+                "satisfies all listed rubric rules; do not require exact wording."
             ),
         },
         {

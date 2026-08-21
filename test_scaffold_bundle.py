@@ -36,6 +36,7 @@ def test_workspace_yaml_round_trip_excludes_secrets_and_binary_state():
                 "__description": "Notice",
             }
         ],
+        ["Answers the question directly", "Uses only supported information"],
     )
 
     assert "must-not-serialize" not in workspace_yaml
@@ -46,6 +47,10 @@ def test_workspace_yaml_round_trip_excludes_secrets_and_binary_state():
     assert imported["uploaded_assets_to_reupload"] == ["uploaded-logo.png"]
     assert "logo_url" not in imported["app_config"]["branding"]
     assert imported["evaluation_scenarios"][0]["input"] == "What should I do?"
+    assert imported["evaluation_rubrics"] == [
+        "Answers the question directly",
+        "Uses only supported information",
+    ]
 
 
 def test_workspace_yaml_rejects_unknown_schema():

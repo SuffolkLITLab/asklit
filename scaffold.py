@@ -671,16 +671,15 @@ def render_experiment_lab(playground=False):
         "and gold_label/expected/reference_answer aliases, plus Promptfoo-style "
         "__expected, __description, and __metadata:* columns."
     )
-    with st.expander("How to write a model-graded rubric", expanded=False):
+    with st.expander("Advanced: shared rules for every scenario", expanded=False):
         st.markdown(
-            "Use `llm-rubric:` followed by the qualities a good answer must have. "
-            "The selected judge model reads the question, the generated answer, "
-            "and this rubric, then assigns a score from 0 to 1. A score of 0.70 "
-            "or higher passes."
+            "Add one quality rule per line below. The selected judge model reads "
+            "each question, generated answer, and all shared rules, then assigns "
+            "a score from 0 to 1. A score of 0.70 or higher passes."
         )
         st.code(
-            "llm-rubric:Explains the next practical step, stays grounded in the guide, "
-            "and says when the guide does not provide enough information",
+            "Explains the next practical step, stays grounded in the guide, and "
+            "says when the guide does not provide enough information",
             language="text",
         )
         st.markdown(
@@ -750,8 +749,8 @@ def render_experiment_lab(playground=False):
                 width="large",
                 help=(
                     "Plain text means exact match. Also supports contains:, icontains:, "
-                    "contains-any:, contains-all:, and llm-rubric:criteria. "
-                    "Rubric labels use the selected judge model."
+                    "contains-any:, and contains-all:. Leave this blank when the "
+                    "advanced shared-rules panel should grade every row."
                 ),
             ),
             "__description": st.column_config.TextColumn("Description", width="medium"),

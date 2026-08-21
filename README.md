@@ -8,7 +8,7 @@ For a more robust deployment, you can deploy it to fly.io or another inexpensive
 
 ## 🚀 Quick Start: The Scaffolder
 
-The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. Start in **Playground** mode to teach or explore prompt + knowledge-base design, then use its final Export step if you want to keep and deploy the project. **Builder** mode exposes the full branding, access-control, and model-configuration workflow from the beginning.
+The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. Start in **Playground** mode to add a knowledge base, write a prompt, try a conversational preview, and then build formal evaluations before exporting. **Builder** mode exposes the full branding, access-control, and model-configuration workflow from the beginning.
 
 ### 1. Requirements
 Before you start, make sure you have:

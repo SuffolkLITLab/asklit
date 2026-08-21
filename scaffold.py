@@ -1278,8 +1278,80 @@ def render_experiment_lab(playground=False):
         )
         if playground:
             st.success(
-                "Ready to keep this project? Choose **4. Export** in the sidebar."
+                "Ready to keep this project? Choose **5. Export** in the sidebar."
             )
+
+
+def render_playground_chat():
+    """Render a small conversational preview before formal evaluation."""
+    st.header("Try the advisor")
+    st.write(
+        "Ask a few questions to see how your prompt and knowledge base work together. "
+        "This chat is a session-only preview; use the Evaluate step for repeatable tests."
+    )
+    profiles = normalize_prompt_profiles(
+        st.session_state.app_config.get("prompt_profiles")
+    )
+    st.session_state.app_config["prompt_profiles"] = profiles
+    profile_keys = [profile["key"] for profile in profiles]
+    labels = {profile["key"]: profile["label"] for profile in profiles}
+    selected_key = st.selectbox(
+        "Prompt to try",
+        profile_keys,
+        format_func=lambda key: labels[key],
+        key="playground_chat_prompt",
+    )
+    profile = next(profile for profile in profiles if profile["key"] == selected_key)
+    st.caption(f"Knowledge base: **{profile['knowledgebase']}**")
+
+    if "playground_chat_messages" not in st.session_state:
+        st.session_state.playground_chat_messages = [
+            {
+                "role": "assistant",
+                "content": "Ask me a question about the uploaded knowledge base.",
+            }
+        ]
+    for message in st.session_state.playground_chat_messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if st.button("Clear preview chat"):
+        st.session_state.playground_chat_messages = []
+        st.rerun()
+    question = st.chat_input("Ask the advisor a question")
+    if not question:
+        return
+
+    st.session_state.playground_chat_messages.append(
+        {"role": "user", "content": question}
+    )
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
+    chroma_path = os.path.join(st.session_state.temp_data_dir, "chroma")
+    try:
+        context_chunks = query_index(
+            question,
+            n_results=5,
+            knowledgebase=profile["knowledgebase"],
+            connected_files=profile.get("connected_files"),
+            db_path=db_path,
+            chroma_path=chroma_path,
+        )
+        response = call_llm(
+            build_experiment_messages(profile["prompt"], question, context_chunks),
+            stream=False,
+        )
+        answer = response_text(response) or "The model returned an empty response."
+    except Exception as exc:
+        answer = f"The preview could not answer this question: {safe_error_message(exc)}"
+
+    with st.chat_message("assistant"):
+        st.markdown(answer)
+    st.session_state.playground_chat_messages.append(
+        {"role": "assistant", "content": answer}
+    )
 
 
 def render_playground_prompt_editor():
@@ -1333,7 +1405,7 @@ def render_playground_prompt_editor():
         profiles.pop(selected_index)
         st.rerun()
 
-    st.info("Next, upload a document to give this prompt a knowledge base.")
+    st.info("Next, try the advisor in **3. Chat**, then build repeatable scenarios in **4. Evaluate**.")
 
 
 def default_scaffold_config(playground=False):
@@ -1514,13 +1586,20 @@ def main():
     if playground:
         step = st.sidebar.radio(
             "Playground steps",
-            ["1. Prompt", "2. Knowledge", "3. Evaluate", "4. Export"],
+            [
+                "1. Knowledge",
+                "2. Prompt",
+                "3. Chat",
+                "4. Evaluate",
+                "5. Export",
+            ],
         )
         step_key = {
-            "1. Prompt": "identity",
-            "2. Knowledge": "knowledge",
-            "3. Evaluate": "experiment",
-            "4. Export": "export",
+            "1. Knowledge": "knowledge",
+            "2. Prompt": "identity",
+            "3. Chat": "chat",
+            "4. Evaluate": "experiment",
+            "5. Export": "export",
         }[step]
     else:
         step = st.sidebar.radio(
@@ -1543,6 +1622,9 @@ def main():
 
     if step_key == "identity" and playground:
         render_playground_prompt_editor()
+
+    elif step_key == "chat" and playground:
+        render_playground_chat()
 
     elif step_key == "identity":
         st.header("Step 1: App Identity & Branding")

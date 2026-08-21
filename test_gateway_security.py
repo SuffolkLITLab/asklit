@@ -1,9 +1,53 @@
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 sys.modules.setdefault("litellm", SimpleNamespace())
 
 from asklit import llm
+
+
+def test_classroom_burst_is_bounded_by_shared_completion_slots(monkeypatch):
+    settings = {
+        "model.name": "test-model",
+        "model.provider": "openai",
+        "model.temperature": "1.0",
+        "model.disable_temperature": "false",
+        "model.max_tokens": "100",
+        "limits.max_output_tokens_hard": "100",
+        "limits.llm_queue_timeout_seconds": "5",
+    }
+    state = {"active": 0, "maximum": 0}
+    state_lock = threading.Lock()
+
+    def completion(**_kwargs):
+        with state_lock:
+            state["active"] += 1
+            state["maximum"] = max(state["maximum"], state["active"])
+        time.sleep(0.02)
+        with state_lock:
+            state["active"] -= 1
+        return "response"
+
+    monkeypatch.setattr(
+        llm, "get_setting", lambda key, default=None: settings.get(key, default)
+    )
+    monkeypatch.setattr(llm, "get_api_key", lambda _provider: "test-key")
+    monkeypatch.setattr(llm, "get_base_url", lambda _provider: None)
+    monkeypatch.setattr(llm.litellm, "completion", completion, raising=False)
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        results = list(
+            executor.map(
+                lambda _index: llm.call_llm([{"role": "user", "content": "Hello"}]),
+                range(20),
+            )
+        )
+
+    assert results == ["response"] * 20
+    assert 1 < state["maximum"] <= 8
 
 
 def test_azure_apim_uses_gateway_header_and_openai_compatibility(monkeypatch):

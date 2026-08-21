@@ -1,13 +1,55 @@
 import os
+import threading
+from contextlib import contextmanager
 
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
-from chromadb import EmbeddingFunction, Documents, Embeddings
 import litellm
 import streamlit as st
-from asklit.config import get_api_key, get_setting, get_base_url
+from chromadb import Documents, EmbeddingFunction, Embeddings
+
+from asklit.config import get_api_key, get_base_url, get_setting
 
 CACHE_DIR = os.path.join("data", "model_cache")
+
+
+def _positive_int_setting(key, default):
+    try:
+        return max(int(get_setting(key, default)), 1)
+    except (TypeError, ValueError):
+        return default
+
+
+_EMBEDDING_SLOTS = None
+_EMBEDDING_SLOTS_LOCK = threading.Lock()
+
+
+def _get_embedding_slots():
+    """Create the process-wide embedding queue without config I/O at import."""
+    global _EMBEDDING_SLOTS
+    if _EMBEDDING_SLOTS is None:
+        with _EMBEDDING_SLOTS_LOCK:
+            if _EMBEDDING_SLOTS is None:
+                _EMBEDDING_SLOTS = threading.BoundedSemaphore(
+                    _positive_int_setting("limits.max_concurrent_embedding_jobs", 2)
+                )
+    return _EMBEDDING_SLOTS
+
+
+@contextmanager
+def embedding_job_slot():
+    """Bound memory-heavy embedding work across Streamlit session threads."""
+    timeout = _positive_int_setting("limits.embedding_queue_timeout_seconds", 180)
+    embedding_slots = _get_embedding_slots()
+    acquired = embedding_slots.acquire(timeout=timeout)
+    if not acquired:
+        raise RuntimeError(
+            "The knowledge-base indexer is busy with other users. Please try again."
+        )
+    try:
+        yield
+    finally:
+        embedding_slots.release()
 
 
 @st.cache_resource
@@ -63,7 +105,8 @@ def get_remote_embeddings(input_data, model=None):
             "Ocp-Apim-Subscription-Key": api_key,
         }
 
-    response = litellm.embedding(**embedding_kwargs)
+    with embedding_job_slot():
+        response = litellm.embedding(**embedding_kwargs)
     return [item["embedding"] for item in response.data]
 
 
@@ -73,7 +116,8 @@ def get_embedding(text):
 
     if use_local:
         model = get_local_model()
-        return model.encode(text).tolist()
+        with embedding_job_slot():
+            return model.encode(text).tolist()
     else:
         return get_remote_embeddings([text])[0]
 
@@ -94,7 +138,8 @@ class LiteLLMEmbeddingFunction(EmbeddingFunction):
 
         if use_local:
             model = get_local_model()
-            embeddings = model.encode(input)
+            with embedding_job_slot():
+                embeddings = model.encode(input)
             return embeddings.tolist()
         else:
             return get_remote_embeddings(input)

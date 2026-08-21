@@ -1,5 +1,8 @@
+import threading
+
 import litellm
-from asklit.config import get_api_key, get_setting, get_base_url
+
+from asklit.config import get_api_key, get_base_url, get_setting
 from asklit.observability import logger, safe_error_message
 
 
@@ -9,6 +12,25 @@ def _get_positive_int_setting(key, default):
     except (TypeError, ValueError):
         value = default
     return max(value, 1)
+
+
+# Streamlit runs each connected session in its own thread. Queue outbound calls
+# at the process boundary so a classroom-sized burst does not exhaust sockets,
+# provider quotas, or gateway connections.
+_LLM_CALL_SLOTS = None
+_LLM_CALL_SLOTS_LOCK = threading.Lock()
+
+
+def _get_llm_call_slots():
+    """Create the process-wide completion queue without reading config at import."""
+    global _LLM_CALL_SLOTS
+    if _LLM_CALL_SLOTS is None:
+        with _LLM_CALL_SLOTS_LOCK:
+            if _LLM_CALL_SLOTS is None:
+                _LLM_CALL_SLOTS = threading.BoundedSemaphore(
+                    _get_positive_int_setting("limits.max_concurrent_llm_calls", 8)
+                )
+    return _LLM_CALL_SLOTS
 
 
 def _bounded_max_tokens(max_tokens_override=None):
@@ -118,18 +140,28 @@ def call_llm(
             "model.reasoning_effort", "low"
         )
 
-    try:
-        return litellm.completion(**completion_kwargs)
-    except Exception as exc:
-        logger.error(
-            "LLM request failed provider=%s model=%s stream=%s error_type=%s error=%s",
-            provider,
-            model,
-            stream,
-            type(exc).__name__,
-            safe_error_message(exc),
+    wait_seconds = _get_positive_int_setting("limits.llm_queue_timeout_seconds", 180)
+    call_slots = _get_llm_call_slots()
+    acquired = call_slots.acquire(timeout=wait_seconds)
+    if not acquired:
+        raise RuntimeError(
+            "The AI service is busy with other playground users. Please run this test again."
         )
-        raise
+    try:
+        try:
+            return litellm.completion(**completion_kwargs)
+        except Exception as exc:
+            logger.error(
+                "LLM request failed provider=%s model=%s stream=%s error_type=%s error=%s",
+                provider,
+                model,
+                stream,
+                type(exc).__name__,
+                safe_error_message(exc),
+            )
+            raise
+    finally:
+        call_slots.release()
 
 
 def estimate_tokens(text):

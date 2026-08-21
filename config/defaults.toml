@@ -31,6 +31,10 @@ max_conversation_turns = 30
 max_upload_size_mb = 10
 max_prompt_length = 2000
 max_output_tokens_hard = 4000
+max_concurrent_llm_calls = 8
+llm_queue_timeout_seconds = 180
+max_concurrent_embedding_jobs = 2
+embedding_queue_timeout_seconds = 180
 
 [logging]
 enabled = true

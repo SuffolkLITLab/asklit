@@ -1,7 +1,10 @@
-import sqlite3
 import os
+import sqlite3
+import threading
 
 DB_PATH_DEFAULT = os.path.join("data", "app.sqlite3")
+_INITIALIZED_PATHS = set()
+_INITIALIZATION_LOCK = threading.Lock()
 
 
 def get_db_path():
@@ -16,6 +19,8 @@ def get_connection(db_path=None):
         os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
@@ -23,8 +28,23 @@ def init_db(db_path=None):
     if db_path is None:
         db_path = get_db_path()
 
+    normalized_path = os.path.abspath(db_path)
+    if normalized_path in _INITIALIZED_PATHS and os.path.exists(normalized_path):
+        return
+
+    with _INITIALIZATION_LOCK:
+        if normalized_path in _INITIALIZED_PATHS and os.path.exists(normalized_path):
+            return
+        _initialize_db(db_path)
+        _INITIALIZED_PATHS.add(normalized_path)
+
+
+def _initialize_db(db_path):
+    """Initialize one database while callers are serialized by init_db."""
     conn = get_connection(db_path=db_path)
     cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode = WAL")
+    cursor.execute("PRAGMA synchronous = NORMAL")
 
     # Users and Roles
     cursor.execute("""

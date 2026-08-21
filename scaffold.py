@@ -1,21 +1,30 @@
-import streamlit as st
 import os
 import shutil
 import tempfile
-import zipfile
-import toml
-import uuid
-import yaml
 import time
+import uuid
+import zipfile
+from datetime import UTC, datetime
+
+import pandas as pd
+import streamlit as st
+import toml
+import yaml
+
 from asklit.auth import hash_password
+from asklit.config import get_api_key, get_base_url, get_secret_value, get_setting
 from asklit.db import get_connection, init_db
 from asklit.experiments import (
-    build_experiment_matrix,
+    build_evaluation_matrix,
     build_experiment_messages,
+    evaluate_expected,
+    normalize_scenario_rows,
+    parse_generated_scenarios,
     parse_model_names,
+    parse_scenario_csv,
     response_text,
+    scenarios_to_csv,
 )
-from asklit.ingestion import extract_text, chunk_pages, get_content_hash
 from asklit.github import (
     GitHubError,
     get_authenticated_user,
@@ -23,6 +32,7 @@ from asklit.github import (
     publish_directory,
     request_device_code,
 )
+from asklit.ingestion import chunk_pages, extract_text, get_content_hash
 from asklit.llm import call_llm, estimate_tokens
 from asklit.models import (
     choose_model_options,
@@ -31,7 +41,6 @@ from asklit.models import (
 )
 from asklit.observability import log_ai_call_event
 from asklit.rag import add_document_to_index, query_index
-from asklit.config import get_api_key, get_base_url, get_secret_value, get_setting
 from asklit.ui import escape_html, safe_url
 
 # Constants
@@ -70,7 +79,7 @@ RECURSIVE_ARTIFACT_NAMES = {
     ".coverage",
     "htmlcov",
 }
-RECURSIVE_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
+RECURSIVE_ARTIFACT_SUFFIXES = (".pyc", ".pyo", "-wal", "-shm")
 SENSITIVE_EXPORT_CONFIG_KEYS = {
     "api_key",
     "client_secret",
@@ -80,6 +89,8 @@ SENSITIVE_EXPORT_CONFIG_KEYS = {
     "shared_password_hash",
     "admin_password_hash",
 }
+WORKSPACE_SCHEMA_VERSION = 1
+MAX_WORKSPACE_YAML_BYTES = 1_000_000
 
 
 def ignore_bundle_artifacts(_directory, names):
@@ -98,8 +109,9 @@ def sanitize_export_config(value):
         sanitized = {}
         for key, child in value.items():
             normalized_key = str(key).strip().lower().replace("-", "_")
-            if normalized_key in SENSITIVE_EXPORT_CONFIG_KEYS or normalized_key.endswith(
-                "_api_key"
+            if (
+                normalized_key in SENSITIVE_EXPORT_CONFIG_KEYS
+                or normalized_key.endswith("_api_key")
             ):
                 continue
             sanitized[key] = sanitize_export_config(child)
@@ -107,6 +119,103 @@ def sanitize_export_config(value):
     if isinstance(value, list):
         return [sanitize_export_config(item) for item in value]
     return value
+
+
+def export_workspace_yaml(config_data, scenarios):
+    """Serialize resumable scaffolder fields without credentials or binary data."""
+    safe_config = sanitize_export_config(config_data)
+    profiles = normalize_prompt_profiles(safe_config.get("prompt_profiles"))
+    source_files = sorted(
+        {
+            filename
+            for profile in profiles
+            for filename in profile.get("connected_files", [])
+        },
+        key=str.casefold,
+    )
+    uploaded_assets = sorted(
+        {
+            os.path.basename(str(safe_config.get("branding", {}).get(key, "")))
+            for key in ("logo_url", "favicon_url")
+            if str(safe_config.get("branding", {}).get(key, "")).startswith("data/")
+        },
+        key=str.casefold,
+    )
+    safe_config["prompt_profiles"] = profiles
+    payload = {
+        "asklit_workspace": {
+            "schema_version": WORKSPACE_SCHEMA_VERSION,
+            "exported_at": datetime.now(UTC).isoformat(),
+            "app_config": safe_config,
+            "evaluation_scenarios": normalize_scenario_rows(scenarios),
+            "source_files_to_reupload": source_files,
+            "uploaded_assets_to_reupload": uploaded_assets,
+        }
+    }
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+
+
+def import_workspace_yaml(value):
+    """Validate and deserialize an AskLit workspace YAML document."""
+    if hasattr(value, "read"):
+        value = value.read()
+    if isinstance(value, bytes):
+        if len(value) > MAX_WORKSPACE_YAML_BYTES:
+            raise ValueError("The workspace YAML must be 1 MB or smaller.")
+        value = value.decode("utf-8-sig")
+    elif len(str(value or "").encode("utf-8")) > MAX_WORKSPACE_YAML_BYTES:
+        raise ValueError("The workspace YAML must be 1 MB or smaller.")
+
+    try:
+        payload = yaml.safe_load(str(value or ""))
+    except yaml.YAMLError as exc:
+        raise ValueError("The workspace file is not valid YAML.") from exc
+    if not isinstance(payload, dict) or not isinstance(
+        payload.get("asklit_workspace"), dict
+    ):
+        raise ValueError("This is not an AskLit workspace YAML file.")
+
+    workspace = payload["asklit_workspace"]
+    if workspace.get("schema_version") != WORKSPACE_SCHEMA_VERSION:
+        raise ValueError("This AskLit workspace version is not supported.")
+    config_data = workspace.get("app_config")
+    if not isinstance(config_data, dict):
+        raise ValueError("The workspace is missing its app configuration.")
+    scenarios = workspace.get("evaluation_scenarios", [])
+    if not isinstance(scenarios, list):
+        raise ValueError("The workspace scenarios must be a list.")
+
+    safe_config = sanitize_export_config(config_data)
+    safe_config["prompt_profiles"] = normalize_prompt_profiles(
+        safe_config.get("prompt_profiles")
+    )
+    source_files = {
+        str(filename).strip()
+        for filename in workspace.get("source_files_to_reupload", [])
+        if str(filename).strip()
+    }
+    for profile in safe_config["prompt_profiles"]:
+        source_files.update(profile.get("connected_files", []))
+        profile["connected_files"] = []
+    uploaded_assets = {
+        str(filename).strip()
+        for filename in workspace.get("uploaded_assets_to_reupload", [])
+        if str(filename).strip()
+    }
+    branding = safe_config.get("branding", {})
+    if isinstance(branding, dict):
+        for key in ("logo_url", "favicon_url"):
+            value = str(branding.get(key, ""))
+            if value.startswith("data/"):
+                uploaded_assets.add(os.path.basename(value))
+                branding.pop(key, None)
+
+    return {
+        "app_config": safe_config,
+        "evaluation_scenarios": normalize_scenario_rows(scenarios),
+        "source_files_to_reupload": sorted(source_files, key=str.casefold),
+        "uploaded_assets_to_reupload": sorted(uploaded_assets, key=str.casefold),
+    }
 
 
 def render_password_hash_setup(label, state_key, help_text):
@@ -156,9 +265,7 @@ def discover_endpoint_models(provider, base_url):
 def get_endpoint_model_choices(provider, configured_models, base_url_override=None):
     """Choose honest runnable options without mistaking Azure's catalog for deployments."""
     base_url = (
-        base_url_override
-        if base_url_override is not None
-        else get_base_url(provider)
+        base_url_override if base_url_override is not None else get_base_url(provider)
     )
     discovery = discover_endpoint_models(provider, base_url)
     configured_models = parse_model_names(configured_models)
@@ -224,11 +331,23 @@ def create_bundle(config_data, data_dir_source):
     with open(config_path, "w") as f:
         toml.dump(toml_data, f)
 
-    # 3. Copy the built data directory (SQLite + Chroma)
+    # 3. Copy the built data directory (SQLite + Chroma). Classroom sessions use
+    # WAL for concurrent diagnostics; checkpoint first and never export sidecars.
+    source_db_path = os.path.join(data_dir_source, "app.sqlite3")
+    if os.path.exists(source_db_path):
+        conn = get_connection(db_path=source_db_path)
+        try:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
     dst_data_dir = os.path.join(temp_dir, "data")
     if os.path.exists(dst_data_dir):
         shutil.rmtree(dst_data_dir)
-    shutil.copytree(data_dir_source, dst_data_dir)
+    shutil.copytree(
+        data_dir_source,
+        dst_data_dir,
+        ignore=ignore_bundle_artifacts,
+    )
 
     # 4. Save prompt/knowledgebase pairings as deployable YAML configs.
     prompts_dir = os.path.join(temp_dir, "prompts")
@@ -257,7 +376,8 @@ def create_bundle(config_data, data_dir_source):
     os.makedirs(st_config_dir, exist_ok=True)
     with open(os.path.join(st_config_dir, "config.toml"), "w") as f:
         f.write(
-            "[server]\nheadless = true\nenableCORS = false\nenableXsrfProtection = false\n"
+            "[server]\nheadless = true\nenableCORS = false\n"
+            "enableXsrfProtection = false\nmaxUploadSize = 10\n"
         )
 
     # 5. Add runtime-focused repository metadata and setup instructions.
@@ -357,7 +477,7 @@ def generate_deployment_secrets(config_data, password_hashes=None):
     ]
     if provider == "openai" and config_data["model"].get("base_url"):
         lines.append(
-            f'OPENAI_BASE_URL = {toml_quote(config_data["model"]["base_url"])}'
+            f"OPENAI_BASE_URL = {toml_quote(config_data['model']['base_url'])}"
         )
     if provider == "azure_apim":
         gateway_url = config_data["model"].get("base_url") or (
@@ -422,8 +542,27 @@ def get_scaffold_document_labels(db_path):
     return {row["id"]: row["filename"] for row in rows}
 
 
-def render_experiment_lab():
-    """Render a small Cartesian prompt/knowledge-base/model comparison lab."""
+def get_knowledgebase_sample(db_path, knowledgebase, max_chars=12000):
+    """Return a bounded source sample for generating grounded scenarios."""
+    conn = get_connection(db_path=db_path)
+    rows = conn.execute(
+        """
+        SELECT dc.content
+        FROM document_chunks AS dc
+        JOIN documents AS d ON d.id = dc.document_id
+        WHERE d.knowledgebase = ?
+        ORDER BY d.filename, dc.chunk_index
+        LIMIT 30
+        """,
+        (knowledgebase,),
+    ).fetchall()
+    conn.close()
+    sample = "\n\n".join(str(row["content"]) for row in rows)
+    return sample[:max_chars]
+
+
+def render_experiment_lab(playground=False):
+    """Render editable scenario evaluation in single-model or matrix mode."""
     ensure_model_defaults(st.session_state.app_config)
     profiles = normalize_prompt_profiles(
         st.session_state.app_config.get("prompt_profiles")
@@ -431,32 +570,15 @@ def render_experiment_lab():
     st.session_state.app_config["prompt_profiles"] = profiles
     model_config = st.session_state.app_config["model"]
 
-    st.header("Step 4: Experiment Lab")
+    st.header("Evaluate your playground" if playground else "Step 4: Experiment Lab")
     st.write(
-        "Ask one question across different prompts, knowledge bases, and models. "
-        "Experiments are temporary and are not included in the exported app."
+        "Build a gold-labeled scenario set, then test one model or run every "
+        "selected prompt and model as a matrix. Results stay in this browser "
+        "session and are not included in an exported app."
     )
     st.warning(
         "Each combination makes a real model call using credentials configured for this scaffolder. "
         "Your provider may charge for these calls."
-    )
-
-    labels = {profile["key"]: profile["label"] for profile in profiles}
-    prompt_keys = st.multiselect(
-        "Prompts",
-        [profile["key"] for profile in profiles],
-        default=[profiles[0]["key"]],
-        format_func=lambda key: labels[key],
-        help="The system prompt to place at the beginning of each test request.",
-    )
-    knowledgebase_keys = st.multiselect(
-        "Knowledge bases",
-        [profile["key"] for profile in profiles],
-        default=[profiles[0]["key"]],
-        format_func=lambda key: (
-            f"{labels[key]} ({next(profile['knowledgebase'] for profile in profiles if profile['key'] == key)})"
-        ),
-        help="Uses the knowledge base and connected-file filters from the selected pairing.",
     )
 
     provider_options = [
@@ -522,41 +644,227 @@ def render_experiment_lab():
         )
         render_endpoint_model_status(discovery, choice_source)
     configured_model = str(model_config.get("name", "")).strip()
-    if model_choices:
-        default_models = (
-            [configured_model]
-            if configured_model in model_choices
-            else model_choices[:1]
-        )
-        model_names = st.multiselect(
-            "Models",
-            model_choices,
-            default=default_models,
-            help="Select one or more models to compare.",
-        )
-    else:
-        model_names = st.text_area(
-            "Models (one per line or comma-separated)",
-            value=configured_model,
-            help="Use model or deployment names accepted by the selected provider.",
-        )
-    question = st.text_area(
-        "Test question",
-        placeholder="What should a user know about…?",
+    default_model = (
+        configured_model
+        if configured_model in model_choices or not model_choices
+        else model_choices[0]
     )
+
+    st.subheader("1. Gold-labeled scenarios")
+    st.caption(
+        "Edit cells directly or upload a UTF-8 CSV. AskLit accepts input/question/query "
+        "and gold_label/expected/reference_answer aliases, plus Promptfoo-style "
+        "__expected, __description, and __metadata:* columns."
+    )
+    if "evaluation_scenarios" not in st.session_state:
+        st.session_state.evaluation_scenarios = [
+            {
+                "input": "What is the most important fact a user should know?",
+                "__expected": "",
+                "__description": "Core knowledge",
+            }
+        ]
+
+    uploaded_scenarios = st.file_uploader(
+        "Upload scenario CSV", type=["csv"], key="evaluation_scenario_upload"
+    )
+    if uploaded_scenarios is not None:
+        signature = (uploaded_scenarios.name, uploaded_scenarios.size)
+        if st.session_state.get("evaluation_upload_signature") != signature:
+            try:
+                st.session_state.evaluation_scenarios = parse_scenario_csv(
+                    uploaded_scenarios.getvalue()
+                )
+                st.session_state.evaluation_upload_signature = signature
+                st.session_state.evaluation_editor_version = (
+                    st.session_state.get("evaluation_editor_version", 0) + 1
+                )
+                st.success(
+                    f"Loaded {len(st.session_state.evaluation_scenarios)} scenarios."
+                )
+            except (UnicodeDecodeError, ValueError) as exc:
+                st.error(str(exc))
+
+    scenario_frame = pd.DataFrame(st.session_state.evaluation_scenarios)
+    for required_column in ("input", "__expected", "__description"):
+        if required_column not in scenario_frame:
+            scenario_frame[required_column] = ""
+    edited_frame = st.data_editor(
+        scenario_frame,
+        num_rows="dynamic",
+        hide_index=True,
+        width="stretch",
+        column_order=["input", "__expected", "__description"],
+        column_config={
+            "input": st.column_config.TextColumn("Input", width="large", required=True),
+            "__expected": st.column_config.TextColumn(
+                "Gold label / __expected",
+                width="large",
+                help=(
+                    "Plain text means exact match. Also supports contains:, icontains:, "
+                    "contains-any:, and contains-all:."
+                ),
+            ),
+            "__description": st.column_config.TextColumn("Description", width="medium"),
+        },
+        key=(
+            f"evaluation_scenario_editor_"
+            f"{st.session_state.get('evaluation_editor_version', 0)}"
+        ),
+    )
+    st.session_state.evaluation_scenarios = normalize_scenario_rows(
+        edited_frame.fillna("").to_dict("records")
+    )
+    st.download_button(
+        "Download scenarios as CSV",
+        scenarios_to_csv(st.session_state.evaluation_scenarios),
+        "asklit-scenarios.csv",
+        "text/csv",
+    )
+
+    labels = {profile["key"]: profile["label"] for profile in profiles}
+    profile_keys = [profile["key"] for profile in profiles]
+    generation_prompt_key = st.selectbox(
+        "Prompt for scenario generation",
+        profile_keys,
+        format_func=lambda key: labels[key],
+    )
+    generation_profile = next(
+        profile for profile in profiles if profile["key"] == generation_prompt_key
+    )
+    generation_count = st.slider("Scenarios to generate", 1, 12, 5)
+    if st.button(
+        "Generate gold-labeled scenarios",
+        disabled=not provider_ready or not default_model,
+    ):
+        db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
+        source_sample = get_knowledgebase_sample(
+            db_path, generation_profile["knowledgebase"]
+        )
+        generation_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You create concise evaluation datasets. Return only a JSON array. "
+                    "Each object must contain input, __expected, and __description. "
+                    "Write realistic user questions answerable from the supplied material. "
+                    "Use an icontains: gold label containing the shortest decisive phrase "
+                    "that a correct answer must include. Do not use facts absent from the material."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Create {generation_count} diverse scenarios.\n\n"
+                    f"SYSTEM PROMPT:\n{generation_profile['prompt']}\n\n"
+                    f"KNOWLEDGE BASE SAMPLE:\n{source_sample or '[No documents uploaded]'}"
+                ),
+            },
+        ]
+        try:
+            with st.spinner("Generating scenarios…"):
+                generated_response = call_llm(
+                    generation_messages,
+                    stream=False,
+                    max_tokens_override=2000,
+                    model_override=default_model,
+                    provider_override=provider,
+                    enforce_model_allowlist=False,
+                )
+                generated = parse_generated_scenarios(response_text(generated_response))
+            if not generated:
+                st.error("The model returned no usable scenarios.")
+            else:
+                st.session_state.evaluation_scenarios = generated
+                st.session_state.evaluation_editor_version = (
+                    st.session_state.get("evaluation_editor_version", 0) + 1
+                )
+                st.rerun()
+        except Exception as exc:
+            st.error(f"Scenario generation failed: {exc}")
+
+    st.subheader("2. Run settings")
+    evaluation_mode = st.radio(
+        "Evaluation shape",
+        ["Single model", "Prompt × model matrix"],
+        horizontal=True,
+        help=(
+            "Single model runs every scenario once. Matrix mode runs every scenario "
+            "through every selected prompt, knowledge base, and model."
+        ),
+    )
+    if evaluation_mode == "Single model":
+        prompt_keys = [
+            st.selectbox(
+                "Prompt",
+                profile_keys,
+                format_func=lambda key: labels[key],
+                key="single_evaluation_prompt",
+            )
+        ]
+        knowledgebase_keys = [
+            st.selectbox(
+                "Knowledge base",
+                profile_keys,
+                format_func=lambda key: (
+                    f"{labels[key]} ({next(profile['knowledgebase'] for profile in profiles if profile['key'] == key)})"
+                ),
+                key="single_evaluation_knowledgebase",
+            )
+        ]
+        if model_choices:
+            model_names = [
+                st.selectbox(
+                    "Model",
+                    model_choices,
+                    index=model_choices.index(default_model),
+                    key="single_evaluation_model",
+                )
+            ]
+        else:
+            model_names = st.text_input(
+                "Model", value=default_model, key="single_evaluation_model_text"
+            )
+    else:
+        prompt_keys = st.multiselect(
+            "Prompts",
+            profile_keys,
+            default=[profile_keys[0]],
+            format_func=lambda key: labels[key],
+        )
+        knowledgebase_keys = st.multiselect(
+            "Knowledge bases",
+            profile_keys,
+            default=[profile_keys[0]],
+            format_func=lambda key: (
+                f"{labels[key]} ({next(profile['knowledgebase'] for profile in profiles if profile['key'] == key)})"
+            ),
+        )
+        if model_choices:
+            model_names = st.multiselect(
+                "Models", model_choices, default=[default_model]
+            )
+        else:
+            model_names = st.text_area(
+                "Models (one per line or comma-separated)", value=default_model
+            )
     top_k = st.slider("Retrieved passages per run", 1, 10, 5)
 
-    matrix = build_experiment_matrix(
-        profiles, prompt_keys, knowledgebase_keys, model_names
+    matrix = build_evaluation_matrix(
+        profiles,
+        prompt_keys,
+        knowledgebase_keys,
+        model_names,
+        st.session_state.evaluation_scenarios,
     )
     run_count = len(matrix)
     if run_count:
         st.caption(f"{run_count} model call{'s' if run_count != 1 else ''} will run.")
-    if run_count > 12:
-        st.error("Choose fewer options so the experiment has no more than 12 runs.")
+    if run_count > 60:
+        st.error("Reduce the matrix to 60 model calls or fewer.")
 
-    can_run = bool(question.strip() and matrix and run_count <= 12 and provider_ready)
-    if st.button("Run experiment", type="primary", disabled=not can_run):
+    can_run = bool(matrix and run_count <= 60 and provider_ready)
+    if st.button("Run evaluation", type="primary", disabled=not can_run):
         experiment_run_id = str(uuid.uuid4())
         db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
         chroma_path = os.path.join(st.session_state.temp_data_dir, "chroma")
@@ -568,9 +876,14 @@ def render_experiment_lab():
             prompt_profile = combination["prompt"]
             knowledgebase_profile = combination["knowledgebase"]
             model = combination["model"]
+            scenario = combination["scenario"]
+            question = scenario["input"]
             progress.progress(
                 index / run_count,
-                text=f"Running {prompt_profile['label']} × {knowledgebase_profile['label']} × {model}",
+                text=(
+                    f"Scenario {index + 1}/{run_count}: "
+                    f"{prompt_profile['label']} × {model}"
+                ),
             )
             started = time.perf_counter()
             context_chunks = []
@@ -633,6 +946,15 @@ def render_experiment_lab():
                 tokens_in=input_tokens,
                 tokens_out=estimate_tokens(answer),
             )
+            grade = (
+                {
+                    "passed": None,
+                    "score": None,
+                    "reason": "Model call failed",
+                }
+                if error
+                else evaluate_expected(answer, scenario.get("__expected", ""))
+            )
 
             results.append(
                 {
@@ -642,11 +964,17 @@ def render_experiment_lab():
                     "knowledgebase": knowledgebase_profile["knowledgebase"],
                     "model": model,
                     "provider": provider,
+                    "scenario": scenario.get("__description") or question,
+                    "input": question,
+                    "expected": scenario.get("__expected", ""),
                     "answer": answer,
+                    "passed": grade["passed"],
+                    "score": grade["score"],
+                    "grade_reason": grade["reason"],
                     "error": safe_error,
                     "failure_stage": failure_stage,
                     "elapsed": elapsed,
-                    "tokens": estimate_tokens(question) + estimate_tokens(answer),
+                    "tokens": input_tokens + estimate_tokens(answer),
                     "sources": [
                         {
                             "filename": document_labels.get(
@@ -662,39 +990,288 @@ def render_experiment_lab():
             )
         progress.progress(1.0, text="Experiment complete")
         st.session_state.experiment_results = results
-        st.session_state.experiment_question = question
 
     results = st.session_state.get("experiment_results", [])
     if results:
-        st.subheader("Results")
-        st.caption(f"Question: {st.session_state.get('experiment_question', question)}")
-        columns = st.columns(min(3, len(results)))
-        for index, result in enumerate(results):
-            with columns[index % len(columns)]:
-                st.markdown(
-                    f"#### {result['prompt_label']} × {result['knowledgebase_label']}"
+        st.subheader("3. Results")
+        passed = sum(result["passed"] is True for result in results)
+        graded = sum(result["passed"] is not None for result in results)
+        metric_columns = st.columns(3)
+        metric_columns[0].metric("Runs", len(results))
+        metric_columns[1].metric("Graded", graded)
+        metric_columns[2].metric(
+            "Pass rate", f"{passed / graded:.0%}" if graded else "—"
+        )
+
+        filter_columns = st.columns(3)
+        prompt_filter = filter_columns[0].multiselect(
+            "Filter prompts",
+            sorted({result["prompt_label"] for result in results}),
+        )
+        model_filter = filter_columns[1].multiselect(
+            "Filter models", sorted({result["model"] for result in results})
+        )
+        outcome_filter = filter_columns[2].multiselect(
+            "Filter outcomes", ["Pass", "Fail", "Not graded", "Error"]
+        )
+
+        all_table_rows = []
+        for result in results:
+            outcome = (
+                "Error"
+                if result["error"]
+                else "Pass"
+                if result["passed"] is True
+                else "Fail"
+                if result["passed"] is False
+                else "Not graded"
+            )
+            source_labels = ", ".join(
+                f"{source['filename']} p.{source['page']}"
+                for source in result["sources"]
+            )
+            retrieved_context = "\n\n".join(
+                f"[{source['filename']} p.{source['page']}]\n{source['content']}"
+                for source in result["sources"]
+            )
+            all_table_rows.append(
+                {
+                    "Run ID": result["run_id"],
+                    "Outcome": outcome,
+                    "Scenario": result["scenario"],
+                    "Input": result["input"],
+                    "Prompt": result["prompt_label"],
+                    "Knowledge base": result["knowledgebase_label"],
+                    "Model": result["model"],
+                    "Provider": result["provider"],
+                    "Gold label": result["expected"],
+                    "Answer": result["answer"],
+                    "Grade": result["grade_reason"],
+                    "Score": result["score"],
+                    "Latency (s)": round(result["elapsed"], 2),
+                    "Approx. tokens": result["tokens"],
+                    "Sources": source_labels,
+                    "Retrieved context": retrieved_context,
+                    "Knowledge-base key": result["knowledgebase"],
+                    "Failure stage": result["failure_stage"] or "",
+                    "Error": result["error"] or "",
+                }
+            )
+        st.download_button(
+            "Download all evaluation results as CSV",
+            pd.DataFrame(all_table_rows).to_csv(index=False),
+            file_name="asklit-evaluation-results.csv",
+            mime="text/csv",
+        )
+        table_rows = [
+            row
+            for row in all_table_rows
+            if (not prompt_filter or row["Prompt"] in prompt_filter)
+            and (not model_filter or row["Model"] in model_filter)
+            and (not outcome_filter or row["Outcome"] in outcome_filter)
+        ]
+        st.dataframe(
+            pd.DataFrame(table_rows),
+            hide_index=True,
+            width="stretch",
+            column_order=[
+                "Outcome",
+                "Scenario",
+                "Input",
+                "Prompt",
+                "Knowledge base",
+                "Model",
+                "Gold label",
+                "Answer",
+                "Grade",
+                "Latency (s)",
+                "Approx. tokens",
+                "Sources",
+                "Error",
+            ],
+            column_config={
+                "Answer": st.column_config.TextColumn(width="large"),
+                "Input": st.column_config.TextColumn(width="large"),
+                "Gold label": st.column_config.TextColumn(width="medium"),
+                "Latency (s)": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
+        if playground:
+            st.success(
+                "Ready to keep this project? Choose **4. Export** in the sidebar."
+            )
+
+
+def render_playground_prompt_editor():
+    """Render the smallest useful prompt + knowledge-base pairing lesson."""
+    st.header("Write a prompt")
+    st.write(
+        "A prompt tells the assistant how to behave. The knowledge-base name tells "
+        "AskLit which uploaded sources this prompt may search. Nothing is published "
+        "unless you later choose Export."
+    )
+    profiles = normalize_prompt_profiles(
+        st.session_state.app_config.get("prompt_profiles")
+    )
+    st.session_state.app_config["prompt_profiles"] = profiles
+
+    selected_index = st.selectbox(
+        "Prompt to edit",
+        range(len(profiles)),
+        format_func=lambda index: profiles[index]["label"],
+    )
+    profile = profiles[selected_index]
+    profile["label"] = st.text_input("Prompt name", profile["label"])
+    profile["knowledgebase"] = st.text_input(
+        "Knowledge-base name",
+        profile["knowledgebase"],
+        help="Prompts with the same knowledge-base name search the same uploaded sources.",
+    )
+    profile["prompt"] = st.text_area(
+        "System prompt",
+        profile["prompt"],
+        height=280,
+        help="Describe the assistant's role, audience, boundaries, and desired answer style.",
+    )
+    profile["key"] = slugify_key(profile["label"], profile["key"])
+
+    action_columns = st.columns(2)
+    if action_columns[0].button("Add another prompt"):
+        next_number = len(profiles) + 1
+        profiles.append(
+            {
+                "key": f"prompt-{next_number}",
+                "label": f"Prompt {next_number}",
+                "knowledgebase": profile["knowledgebase"],
+                "prompt": profile["prompt"],
+                "conversation_starters": [],
+                "connected_files": [],
+            }
+        )
+        st.rerun()
+    if len(profiles) > 1 and action_columns[1].button("Remove this prompt"):
+        profiles.pop(selected_index)
+        st.rerun()
+
+    st.info("Next, upload a document to give this prompt a knowledge base.")
+
+
+def default_scaffold_config(playground=False):
+    """Return a complete configuration for a new browser workspace."""
+    return {
+        "app": {
+            "title": "My Knowledge Base",
+            "welcome_message": "How can I help you today?",
+            "access_mode": "public" if playground else "password",
+            "disable_admin": playground,
+        },
+        "model": {},
+        "retrieval": {},
+        "limits": {},
+        "logging": {"enabled": True},
+        "branding": {
+            "favicon_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-favicon.png",
+            "logo_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png",
+            "homepage_url": "https://suffolklitlab.org",
+            "supplemental_footer_text": "",
+            "hide_asklit_badge": False,
+        },
+        "prompt_profiles": [
+            {
+                "key": "default",
+                "label": "Default",
+                "knowledgebase": "default",
+                "prompt": "You are a helpful assistant.",
+                "conversation_starters": [],
+                "connected_files": [],
+            }
+        ],
+    }
+
+
+def merge_workspace_config(defaults, imported):
+    """Recursively merge a validated workspace onto current schema defaults."""
+    merged = dict(defaults)
+    for key, value in imported.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_workspace_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def initialize_scaffold_storage():
+    """Create isolated database/vector storage for the current browser session."""
+    st.session_state.scaffold_id = str(uuid.uuid4())
+    st.session_state.temp_data_dir = os.path.join(
+        tempfile.gettempdir(), f"asklit_data_{st.session_state.scaffold_id}"
+    )
+    os.makedirs(st.session_state.temp_data_dir, exist_ok=True)
+    init_db(os.path.join(st.session_state.temp_data_dir, "app.sqlite3"))
+
+
+def render_workspace_controls(playground):
+    """Render YAML save/resume controls shared by both scaffolder modes."""
+    with st.sidebar.expander("Save or resume", expanded=False):
+        st.caption(
+            "Workspace YAML saves settings, prompts, and scenarios—not API keys, "
+            "uploaded documents/images, or generated answers."
+        )
+        workspace_yaml = export_workspace_yaml(
+            st.session_state.app_config,
+            st.session_state.get("evaluation_scenarios", []),
+        )
+        st.download_button(
+            "Download workspace YAML",
+            workspace_yaml,
+            file_name="asklit-workspace.yml",
+            mime="application/x-yaml",
+        )
+        uploaded_workspace = st.file_uploader(
+            "Import workspace YAML",
+            type=["yml", "yaml"],
+            key="workspace_yaml_upload",
+        )
+        if st.button(
+            "Import and replace current workspace",
+            disabled=uploaded_workspace is None,
+        ):
+            try:
+                imported = import_workspace_yaml(uploaded_workspace.getvalue())
+            except (UnicodeDecodeError, ValueError) as exc:
+                st.error(str(exc))
+            else:
+                imported_config = merge_workspace_config(
+                    default_scaffold_config(playground), imported["app_config"]
                 )
-                st.caption(
-                    f"{result['model']} via {result['provider']} · "
-                    f"{result['elapsed']:.1f}s · ~{result['tokens']} tokens · "
-                    f"run {result['run_id'][:8]}"
+                scenarios = imported["evaluation_scenarios"]
+                source_files = imported["source_files_to_reupload"]
+                uploaded_assets = imported["uploaded_assets_to_reupload"]
+                st.query_params["workspace_mode"] = (
+                    "playground" if playground else "builder"
                 )
-                if result["error"]:
-                    st.error(
-                        f"{result['failure_stage'].title()} failed: {result['error']}"
-                    )
-                else:
-                    st.markdown(result["answer"])
-                with st.expander(f"Retrieved sources ({len(result['sources'])})"):
-                    if not result["sources"]:
-                        st.write("No matching passages were retrieved.")
-                    for source_index, source in enumerate(result["sources"]):
-                        page = source["page"] if source["page"] is not None else "N/A"
-                        st.markdown(
-                            f"**Source {source_index + 1}: {source['filename']}, page {page}**"
-                        )
-                        st.write(source["content"])
-                        st.divider()
+                st.session_state.clear()
+                initialize_scaffold_storage()
+                st.session_state.app_config = imported_config
+                st.session_state.evaluation_scenarios = scenarios
+                st.session_state.workspace_source_files = source_files
+                st.session_state.workspace_uploaded_assets = uploaded_assets
+                st.session_state.workspace_imported = True
+                st.rerun()
+
+    if st.session_state.get("workspace_imported"):
+        st.sidebar.success("Workspace imported.")
+        source_files = st.session_state.get("workspace_source_files", [])
+        if source_files:
+            st.sidebar.warning(
+                "Re-upload these knowledge-base files: " + ", ".join(source_files)
+            )
+        uploaded_assets = st.session_state.get("workspace_uploaded_assets", [])
+        if uploaded_assets:
+            st.sidebar.warning(
+                "Re-upload these branding images in Builder mode: "
+                + ", ".join(uploaded_assets)
+            )
 
 
 def main():
@@ -716,68 +1293,75 @@ def main():
         )
         st.sidebar.divider()
 
-    st.title("🏗️ AskLit Project Scaffolder")
-    st.markdown("""
-    Create your own private AI Knowledge Base app in minutes. 
-    This tool will help you configure your app, upload your documents, 
-    and bundle everything into a GitHub-ready repository.
-    """)
+    resumed_mode = st.query_params.get("workspace_mode")
+    workflow_mode = st.sidebar.radio(
+        "Mode",
+        ["Playground", "Builder — export an app"],
+        index=1 if resumed_mode == "builder" else 0,
+        help=(
+            "Playground starts with prompt, knowledge-base, and evaluation exercises; "
+            "you can still export the finished project."
+        ),
+    )
+    if resumed_mode:
+        del st.query_params["workspace_mode"]
+    playground = workflow_mode == "Playground"
+    if playground:
+        st.title("🧪 AskLit Playground")
+        st.markdown(
+            "Learn how a prompt and knowledge base work together, then evaluate "
+            "gold-labeled scenarios. Export the project if you decide to keep it."
+        )
+    else:
+        st.title("🏗️ AskLit Project Scaffolder")
+        st.markdown(
+            "Configure, test, and bundle a private knowledge-base app into a "
+            "GitHub-ready repository."
+        )
 
     if "scaffold_id" not in st.session_state:
-        st.session_state.scaffold_id = str(uuid.uuid4())
-        # Create a unique data directory for this session's build
-        st.session_state.temp_data_dir = os.path.join(
-            tempfile.gettempdir(), f"asklit_data_{st.session_state.scaffold_id}"
-        )
-        os.makedirs(st.session_state.temp_data_dir, exist_ok=True)
-        # Initialize a fresh DB in the temp dir
-        db_path = os.path.join(st.session_state.temp_data_dir, "app.sqlite3")
-        init_db(db_path)
+        initialize_scaffold_storage()
 
     if "app_config" not in st.session_state:
-        st.session_state.app_config = {
-            "app": {
-                "title": "My Knowledge Base",
-                "welcome_message": "How can I help you today?",
-                "access_mode": "password",
-            },
-            "model": {},
-            "retrieval": {},
-            "limits": {},
-            "logging": {"enabled": True},
-            "branding": {
-                "favicon_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-favicon.png",
-                "logo_url": "https://github.com/SuffolkLITLab/logos/raw/main/current-logo/png/lit-lab-logo-large.png",
-                "homepage_url": "https://suffolklitlab.org",
-                "supplemental_footer_text": "",
-                "hide_asklit_badge": False,
-            },
-            "prompt_profiles": [
-                {
-                    "key": "default",
-                    "label": "Default",
-                    "knowledgebase": "default",
-                    "prompt": "You are a helpful assistant.",
-                    "conversation_starters": [],
-                    "connected_files": [],
-                }
-            ],
-        }
+        st.session_state.app_config = default_scaffold_config(playground)
     ensure_model_defaults(st.session_state.app_config)
+    render_workspace_controls(playground)
 
     # Sidebar Navigation
-    step = st.sidebar.radio(
-        "Steps",
-        [
-            "1. Identity",
-            "2. AI Model",
-            "3. Knowledge",
-            "4. Experiment Lab",
-            "5. Export",
-        ],
-    )
+    if playground:
+        step = st.sidebar.radio(
+            "Playground steps",
+            ["1. Prompt", "2. Knowledge", "3. Evaluate", "4. Export"],
+        )
+        step_key = {
+            "1. Prompt": "identity",
+            "2. Knowledge": "knowledge",
+            "3. Evaluate": "experiment",
+            "4. Export": "export",
+        }[step]
+    else:
+        step = st.sidebar.radio(
+            "Builder steps",
+            [
+                "1. Identity",
+                "2. AI Model",
+                "3. Knowledge",
+                "4. Experiment Lab",
+                "5. Export",
+            ],
+        )
+        step_key = {
+            "1. Identity": "identity",
+            "2. AI Model": "model",
+            "3. Knowledge": "knowledge",
+            "4. Experiment Lab": "experiment",
+            "5. Export": "export",
+        }[step]
 
-    if step == "1. Identity":
+    if step_key == "identity" and playground:
+        render_playground_prompt_editor()
+
+    elif step_key == "identity":
         st.header("Step 1: App Identity & Branding")
 
         st.subheader("Basic Information")
@@ -964,7 +1548,7 @@ def main():
             st.session_state.app_config["branding"]["hide_asklit_badge"],
         )
 
-    elif step == "2. AI Model":
+    elif step_key == "model":
         st.header("Step 2: AI Configuration")
         st.info(
             "You won't provide API keys here. The scaffolder's own credentials are "
@@ -1129,8 +1713,8 @@ def main():
         }
         st.success("Using local embeddings (no API key needed during scaffolding!)")
 
-    elif step == "3. Knowledge":
-        st.header("Step 3: Upload Knowledge")
+    elif step_key == "knowledge":
+        st.header("Add a knowledge base" if playground else "Step 3: Upload Knowledge")
         st.write("Upload the PDFs or documents you want your AI to know about.")
         st.session_state.app_config["prompt_profiles"] = normalize_prompt_profiles(
             st.session_state.app_config.get("prompt_profiles")
@@ -1225,12 +1809,20 @@ def main():
 
                     st.success(f"Indexed {len(uploaded_files)} documents!")
 
-    elif step == "4. Experiment Lab":
-        render_experiment_lab()
+    elif step_key == "experiment":
+        render_experiment_lab(playground=playground)
 
-    elif step == "5. Export":
+    elif step_key == "export":
         ensure_model_defaults(st.session_state.app_config)
-        st.header("Step 5: Export your Project")
+        st.header(
+            "Export your project" if playground else "Step 5: Export your Project"
+        )
+        if playground:
+            st.info(
+                "Playground projects start with public access and the admin backend "
+                "disabled. Switch to Builder first if you want passwords, branding, "
+                "or detailed deployment settings."
+            )
 
         # 1. Configuration Generator
         with st.expander("📋 Deployment Settings & Secrets", expanded=True):

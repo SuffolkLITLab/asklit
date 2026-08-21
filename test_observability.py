@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from asklit.db import get_connection
 from asklit.observability import log_ai_call_event, safe_error_message
 
@@ -42,3 +44,28 @@ def test_failed_ai_call_is_persisted(monkeypatch, tmp_path):
     assert row["stage"] == "completion"
     assert row["error_type"] == "RuntimeError"
     assert row["error_message"] == "Gateway returned 403"
+
+
+def test_concurrent_diagnostic_writes_do_not_lock_database(monkeypatch, tmp_path):
+    db_path = tmp_path / "classroom.sqlite3"
+    monkeypatch.setenv("ASKLIT_DB_PATH", str(db_path))
+
+    def write_event(index):
+        log_ai_call_event(
+            run_id=f"run-{index}",
+            source="experiment_lab",
+            provider="openai",
+            model="test-model",
+            status="succeeded",
+        )
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        list(executor.map(write_event, range(20)))
+
+    conn = get_connection()
+    count = conn.execute("SELECT COUNT(*) FROM ai_call_events").fetchone()[0]
+    journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    conn.close()
+
+    assert count == 20
+    assert journal_mode == "wal"

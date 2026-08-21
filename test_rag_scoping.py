@@ -55,3 +55,31 @@ def test_keyword_retrieval_is_scoped_by_knowledgebase_and_file(monkeypatch, tmp_
         "housing-b"
     ]
     assert resolve_document_filter("housing") == {"housing-a", "housing-b"}
+
+
+def test_keyword_retrieval_can_use_an_explicit_scaffold_database(tmp_path):
+    db_path = tmp_path / "scaffold" / "app.sqlite3"
+    init_db(str(db_path))
+    conn = get_connection(str(db_path))
+    conn.execute(
+        """
+        INSERT INTO documents
+            (id, knowledgebase, filename, file_path, file_type, file_size, status)
+        VALUES ('lab-doc', 'lab', 'lab.txt', 'data/uploads/lab.txt', '.txt', 20, 'indexed')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO document_chunks
+            (document_id, chunk_index, content, page_number)
+        VALUES ('lab-doc', 0, 'experiment laboratory rights', 1)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    results = query_keyword_index(
+        "laboratory rights", knowledgebase="lab", db_path=str(db_path)
+    )
+
+    assert [result["metadata"]["document_id"] for result in results] == ["lab-doc"]

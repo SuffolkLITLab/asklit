@@ -101,11 +101,11 @@ def delete_document_from_index(document_id):
     collection.delete(where={"document_id": document_id})
 
 
-def resolve_document_filter(knowledgebase=None, connected_files=None):
+def resolve_document_filter(knowledgebase=None, connected_files=None, db_path=None):
     knowledgebase = knowledgebase or DEFAULT_KNOWLEDGEBASE
     connected_files = connected_files or []
 
-    conn = get_connection()
+    conn = get_connection(db_path=db_path)
     cursor = conn.cursor()
     if connected_files:
         placeholders = ",".join("?" for _ in connected_files)
@@ -129,7 +129,11 @@ def resolve_document_filter(knowledgebase=None, connected_files=None):
 
 
 def query_keyword_index(
-    query_text, n_results=3, knowledgebase=None, connected_files=None
+    query_text,
+    n_results=3,
+    knowledgebase=None,
+    connected_files=None,
+    db_path=None,
 ):
     terms = [
         term
@@ -139,7 +143,7 @@ def query_keyword_index(
     if not terms:
         return []
 
-    conn = get_connection()
+    conn = get_connection(db_path=db_path)
     cursor = conn.cursor()
     params = [knowledgebase or DEFAULT_KNOWLEDGEBASE]
     files_clause = ""
@@ -191,16 +195,25 @@ def query_keyword_index(
     return scored[:n_results]
 
 
-def query_index(query_text, n_results=None, knowledgebase=None, connected_files=None):
+def query_index(
+    query_text,
+    n_results=None,
+    knowledgebase=None,
+    connected_files=None,
+    db_path=None,
+    chroma_path=None,
+):
     if n_results is None:
         n_results = int(get_setting("retrieval.top_k", 5))
     knowledgebase = knowledgebase or DEFAULT_KNOWLEDGEBASE
     connected_files = connected_files or []
-    allowed_document_ids = resolve_document_filter(knowledgebase, connected_files)
+    allowed_document_ids = resolve_document_filter(
+        knowledgebase, connected_files, db_path=db_path
+    )
     if not allowed_document_ids:
         return []
 
-    collection = get_collection()
+    collection = get_collection(chroma_path=chroma_path)
     vector_n_results = max(n_results * 6, 50)
     query_kwargs = {"query_texts": [query_text], "n_results": vector_n_results}
     if knowledgebase != DEFAULT_KNOWLEDGEBASE:
@@ -231,6 +244,7 @@ def query_index(query_text, n_results=None, knowledgebase=None, connected_files=
         n_results=min(3, n_results),
         knowledgebase=knowledgebase,
         connected_files=connected_files,
+        db_path=db_path,
     )
     combined_results = []
     seen = set()

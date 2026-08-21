@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 
 from asklit.auth import hash_password, verify_password
-from asklit.config import get_nested_value, get_setting
+from asklit.config import get_base_url, get_nested_value, get_setting
 from asklit.db import get_connection, init_db
 from asklit.prompts import load_prompt_configs, save_new_prompt, get_active_prompt
 from asklit.ui import escape_html, safe_url
@@ -32,6 +32,7 @@ def test_init_db_creates_parent_directory_and_tables(tmp_path):
     case.assertIn("settings", tables)
     case.assertIn("documents", tables)
     case.assertIn("messages", tables)
+    case.assertIn("ai_call_events", tables)
     case.assertIn("knowledgebase", columns)
     case.assertIn("prompt_key", prompt_columns)
 
@@ -164,6 +165,17 @@ def test_settings_fall_back_to_environment(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_TITLE", "Env Title")
 
     case.assertEqual(get_setting("app.title", "Default"), "Env Title")
+
+
+def test_openai_base_url_falls_back_to_generated_model_config(monkeypatch, tmp_path):
+    case = unittest.TestCase()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ASKLIT_DB_PATH", str(tmp_path / "missing" / "app.sqlite3"))
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("MODEL_BASE_URL", "https://models.example/v1")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+
+    case.assertEqual(get_base_url("openai"), "https://models.example/v1")
 
 
 def test_get_nested_value_supports_dotted_keys():

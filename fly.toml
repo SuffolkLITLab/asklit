@@ -1,0 +1,46 @@
+app = "asklit-scaffold-lab"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENABLE_SCAFFOLDER = "true"
+  APP_ACCESS_MODE = "public"
+  MODEL_PROVIDER = "azure_apim"
+  MODEL_NAME = "gpt-5.4-mini"
+  MODEL_ALLOW_USER_SELECTION = "true"
+  MODEL_ALLOWED_MODELS = "gpt-5.4-nano,gpt-5.4-mini,gpt-5.6-sol,deepseek-v4-pro,grok-4.1-fast-reasoning,llama-4-maverick,kimi-k2.6,mistral-large-3,phi-4-mini,gpt-4.1-nano,gpt-4.1-mini"
+  MODEL_USE_LOCAL_EMBEDDINGS = "true"
+  MODEL_LOCAL_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+  LIMITS_MAX_OUTPUT_TOKENS_HARD = "4000"
+  LIMITS_MAX_CONVERSATION_TURNS = "30"
+  LIMITS_MAX_PROMPT_LENGTH = "2000"
+
+[http_service]
+  internal_port = 8501
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 40
+    hard_limit = 60
+
+  [[http_service.checks]]
+    grace_period = "60s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/_stcore/health"
+
+[[vm]]
+  size = "shared-cpu-4x"
+  memory = "4gb"
+
+[[mounts]]
+  source = "asklit_data"
+  destination = "/app/data"

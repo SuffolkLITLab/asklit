@@ -112,7 +112,7 @@ def main():
 
         model_name = st.text_input(
             "Model Name / Deployment ID",
-            value=get_setting("model.name", "gpt-5-nano"),
+            value=get_setting("model.name", "gpt-5.4-mini"),
             help="The name of the model or the Azure Deployment ID.",
         )
 

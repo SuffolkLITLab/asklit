@@ -1,5 +1,6 @@
 import litellm
 from asklit.config import get_api_key, get_setting, get_base_url
+from asklit.observability import logger, safe_error_message
 
 
 def _get_positive_int_setting(key, default):
@@ -36,15 +37,27 @@ def get_allowed_models():
     return [str(model).strip() for model in models if str(model).strip()]
 
 
-def call_llm(messages, stream=True, max_tokens_override=None, model_override=None):
+def call_llm(
+    messages,
+    stream=True,
+    max_tokens_override=None,
+    model_override=None,
+    provider_override=None,
+    enforce_model_allowlist=True,
+):
     """Call the configured LLM provider using LiteLLM."""
-    configured_model = get_setting("model.name", "gpt-5-nano")
+    configured_model = get_setting("model.name", "gpt-5.4-mini")
     model = str(model_override or configured_model).strip()
     allowed_models = get_allowed_models()
     is_configured_model = model == str(configured_model).strip()
-    if model_override and not is_configured_model and model not in allowed_models:
+    if (
+        enforce_model_allowlist
+        and model_override
+        and not is_configured_model
+        and model not in allowed_models
+    ):
         raise ValueError("The selected model is not enabled for this AskLit instance.")
-    provider = get_setting("model.provider", "openai")
+    provider = str(provider_override or get_setting("model.provider", "openai")).strip()
     temperature = float(get_setting("model.temperature", 1.0))
     max_tokens = _bounded_max_tokens(max_tokens_override)
     disable_temp_setting = get_setting("model.disable_temperature", "false") == "true"
@@ -105,8 +118,18 @@ def call_llm(messages, stream=True, max_tokens_override=None, model_override=Non
             "model.reasoning_effort", "low"
         )
 
-    response = litellm.completion(**completion_kwargs)
-    return response
+    try:
+        return litellm.completion(**completion_kwargs)
+    except Exception as exc:
+        logger.error(
+            "LLM request failed provider=%s model=%s stream=%s error_type=%s error=%s",
+            provider,
+            model,
+            stream,
+            type(exc).__name__,
+            safe_error_message(exc),
+        )
+        raise
 
 
 def estimate_tokens(text):

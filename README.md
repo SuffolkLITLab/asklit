@@ -24,13 +24,16 @@ Before you start, make sure you have:
     *   **Prompt & Knowledge Base Pairings:** Define one or more prompts and the knowledge base each one should search.
     *   **Custom Branding:** Upload your own logo and favicon.
     *   *(Insert Screenshot: Scaffolder Step 1)*
-3.  **AI Configuration:** Choose your model provider (e.g., OpenAI) and the model name (e.g., `gpt-4o`).
+3.  **AI Configuration:** Choose your model provider (e.g., OpenAI) and the model name (the default is `gpt-5.4-mini`).
 4.  **Knowledge Upload:** Drag and drop your PDFs, Word docs, or Text files. The tool will chunk and embed them locally so you can see your knowledge base built in real-time.
     *   *(Insert Screenshot: Scaffolder Step 3)*
-5.  **Export & Deploy:** 
-    *   **Connect GitHub:** Click the button to authorize AskLit to create a repo for you.
-    *   **Secrets Generator:** Copy the pre-formatted TOML block from the "Deployment Secrets" box. Use the built-in **Password Hasher** if you need to set a password.
-    *   **Push:** Click "Create Repo & Push". This creates a private repository on your account with all your settings and documents pre-indexed.
+5.  **Experiment Lab:** Enter one representative question, select prompts, knowledge bases, and models, then compare the answers, retrieved passages, latency, and approximate tokens. The lab runs every selected combination and does not add experiment history to the exported app.
+    *   AskLit identifies Azure AI and APIM URLs even when they use the `openai` provider alias. For small OpenAI-compatible `/models` responses, the lab shows the returned models directly. Azure `/models` responses are treated as catalog entries—not proof of deployment—so Azure experiments use the configured deployment allowlist instead.
+    *   For a different Azure account, set `"model.allowed_models"` in Streamlit secrets or `MODEL_ALLOWED_MODELS` in `.env` to the deployment names that account actually exposes.
+6.  **Export & Deploy:**
+    *   **Connect GitHub:** Click the button, enter AskLit's one-time code on GitHub, and approve repository access.
+    *   **Secrets Generator:** Copy the pre-formatted TOML block from **Deployment Settings & Secrets**. Passwords entered in the Identity step are hashed automatically and inserted into this block.
+    *   **Push:** Click "Create Repo & Push". This creates a public repository by default with your settings and documents pre-indexed. Select the private-repository checkbox first if your Streamlit plan supports private repositories.
 
 ---
 
@@ -45,7 +48,7 @@ In your Streamlit Cloud dashboard, go to **Settings > Secrets** and paste your c
 ```toml
 OPENAI_API_KEY = "sk-..."
 ADMIN_ROUTE = "manage" # Your secret admin URL parameter
-ADMIN_PASSWORD_HASH = "..." # Generate this using the Hash Tool
+ADMIN_PASSWORD_HASH = "..." # Generated automatically by the scaffolder
 "app.disable_admin" = "false" # Set to true to completely hide admin pages
 ```
 
@@ -56,6 +59,10 @@ OPENAI_API_KEY = "your-provider-key"
 OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
 "model.name" = "anthropic/claude-3-opus" # Use the provider's specific model string
 ```
+
+The scaffolder exposes this as **Use a custom OpenAI-compatible endpoint** in
+the AI Model step. It exports the URL and a placeholder key, never the
+scaffolder host's own credential.
 
 ### 3. Limited Azure educator credentials
 

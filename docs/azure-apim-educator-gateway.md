@@ -35,7 +35,18 @@ gpt-5.6-sol
 deepseek-v4-pro
 grok-4.1-fast-reasoning
 llama-4-maverick
+kimi-k2.6
+mistral-large-3
+phi-4-mini
+gpt-4.1-nano
+gpt-4.1-mini
 ```
+
+Qwen is not exposed in this deployment. In East US 2, Azure currently presents
+`Qwen3-32B` as a fine-tuning base model rather than an ordinary hosted inference
+deployment, and the resource provider rejects a `GlobalStandard` inference
+deployment for it. Add Qwen to this list and the API policy only after Azure
+offers a deployable inference SKU in the selected region.
 
 The FLUX image deployment was removed and is not exposed.
 
@@ -48,19 +59,19 @@ It does **not** support `llm-token-limit`, `rate-limit-by-key`, or
 
 For this pilot, the shared cohort subscription currently receives:
 
-- 30 calls per minute
-- 600 calls per 2,592,000-second (30-day) subscription window
-- 150,000 KB aggregate request/response bandwidth in that window
+- 180 calls per minute
+- 2,000 calls per 2,592,000-second (30-day) subscription window
+- 500,000 KB aggregate request/response bandwidth in that window
 - 200,000 characters per serialized request body
 - 4,000 requested output tokens per call
-- access to the six approved chat deployments only
+- access to the eleven approved chat deployments only
 
 The quota window is a rolling APIM subscription period, not a calendar month.
 The $20 Azure budget remains calendar-month based. Consumption APIM avoids the
 fixed Basic v2 charge, but model inference is still billed normally.
 
 This is a disclosure-containment control: a stolen key can make at most the
-pool's remaining 600 calls, can be revoked immediately, and cannot call the
+pool's remaining 2,000 calls, can be revoked immediately, and cannot call the
 Azure AI account directly. The Azure budget alert is only a delayed backstop.
 Because the key is shared, one educator can consume the pool and a rotation
 requires updating all twelve educators.
@@ -91,9 +102,9 @@ AZURE_APIM_API_KEY = "<shared cohort APIM subscription key>"
 AZURE_APIM_BASE_URL = "https://tulane-asklit-gateway.azure-api.net/asklit"
 
 "model.provider" = "azure_apim"
-"model.name" = "gpt-5.4-nano"
+"model.name" = "gpt-5.4-mini"
 "model.allow_user_selection" = "true"
-"model.allowed_models" = "gpt-5.4-nano,gpt-5.4-mini,gpt-5.6-sol,deepseek-v4-pro,grok-4.1-fast-reasoning,llama-4-maverick"
+"model.allowed_models" = "gpt-5.4-nano,gpt-5.4-mini,gpt-5.6-sol,deepseek-v4-pro,grok-4.1-fast-reasoning,llama-4-maverick,kimi-k2.6,mistral-large-3,phi-4-mini,gpt-4.1-nano,gpt-4.1-mini"
 "model.max_tokens" = "4000"
 "limits.max_output_tokens_hard" = "4000"
 "limits.max_conversation_turns" = "30"
@@ -183,7 +194,10 @@ Apply this policy to the API. Create the non-secret APIM named value
         var modelAllowed =
           model == &quot;gpt-5.4-nano&quot; || model == &quot;gpt-5.4-mini&quot; ||
           model == &quot;gpt-5.6-sol&quot; || model == &quot;deepseek-v4-pro&quot; ||
-          model == &quot;grok-4.1-fast-reasoning&quot; || model == &quot;llama-4-maverick&quot;;
+          model == &quot;grok-4.1-fast-reasoning&quot; || model == &quot;llama-4-maverick&quot; ||
+          model == &quot;kimi-k2.6&quot; || model == &quot;mistral-large-3&quot; ||
+          model == &quot;phi-4-mini&quot; || model == &quot;gpt-4.1-nano&quot; ||
+          model == &quot;gpt-4.1-mini&quot;;
         var maximum = (int?)body[&quot;max_completion_tokens&quot;] ??
           (int?)body[&quot;max_tokens&quot;];
         return modelAllowed &amp;&amp; maximum.HasValue &amp;&amp;
@@ -212,8 +226,8 @@ the API to that product and create one `educator-cohort` APIM subscription.
 <policies>
   <inbound>
     <base />
-    <rate-limit calls="30" renewal-period="60" />
-    <quota calls="600" bandwidth="150000" renewal-period="2592000" />
+    <rate-limit calls="180" renewal-period="60" />
+    <quota calls="2000" bandwidth="500000" renewal-period="2592000" />
   </inbound>
   <backend><base /></backend>
   <outbound><base /></outbound>
@@ -249,10 +263,10 @@ abuse control; the budget workflow is not.
 - Missing, invalid, or cancelled educator key: HTTP 401
 - Unapproved model or output request above 4,000 tokens: HTTP 403
 - Request body above 200,000 characters: HTTP 413
-- More than 30 calls in a minute: HTTP 429
+- More than 180 calls in a minute: HTTP 429
 - Per-key call or bandwidth quota exhausted: HTTP 403
 - Direct Azure AI request with an account key: HTTP 401
-- All six approved model deployments through APIM: HTTP 200
+- All eleven approved model deployments through APIM: HTTP 200
 - AskLit displays only a generic provider/limit error to non-admin users
 
 APIM counters can overshoot slightly when concurrent requests arrive at

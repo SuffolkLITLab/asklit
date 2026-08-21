@@ -142,6 +142,30 @@ def init_db(db_path=None):
     )
     """)
 
+    # Structured diagnostics for model and retrieval calls.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS ai_call_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        provider TEXT,
+        model TEXT,
+        prompt_key TEXT,
+        knowledgebase TEXT,
+        status TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        error_type TEXT,
+        error_message TEXT,
+        latency_ms INTEGER,
+        tokens_in INTEGER,
+        tokens_out INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ai_call_events_created_at ON ai_call_events (created_at)"
+    )
+
     # Rate limit events
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS rate_limit_events (

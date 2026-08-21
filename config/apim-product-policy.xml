@@ -1,0 +1,10 @@
+<policies>
+  <inbound>
+    <base />
+    <rate-limit calls="180" renewal-period="60" />
+    <quota calls="2000" bandwidth="500000" renewal-period="2592000" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>

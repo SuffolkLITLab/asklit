@@ -1,11 +1,16 @@
 __pycache__/
+*.pyc
+.env
+.DS_Store
+.venv/
+.pytest_cache/
+.ruff_cache/
+tmp/
+output/
 .streamlit/secrets.toml
 .streamlit/tulane-educator-cohort-secrets.toml
+.streamlit/github_oauth_fly
 data/model_cache/
 # Data is now tracked for GitHub-based knowledge base persistence
 # !data/uploads/.gitkeep
 # !data/chroma/.gitkeep
-.env
-.DS_Store
-*.pyc
-.streamlit/secrets.toml

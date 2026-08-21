@@ -104,13 +104,28 @@ Open <https://asklit-scaffold.streamlit.app/> in a wide browser window. If the l
 
 ### 1. Name and describe the app
 
-Enter the public-facing title, welcome message, and organization details. Do not enter passwords or API keys here.
+Enter the public-facing title, welcome message, and organization details. If the
+chat is password protected, enter and confirm its password on this screen.
+AskLit immediately replaces the plain password with a PBKDF2 hash and inserts
+that hash into the deployment settings later. Configure the administrator
+password here as well when the admin backend is enabled. Do not enter API keys;
+those belong only in the deployed app's private Streamlit Secrets.
 
 ![AskLit Scaffolder identity and branding screen](screenshots/01-scaffolder-identity.png)
 
 ### 2. Choose the administrator-provided model settings
 
 Choose the model provider and model specified by your program administrator. For a Tulane cohort deployment, use the values supplied with the Tulane configuration rather than guessing.
+
+When using **OpenAI** with a proxy, Azure OpenAI-compatible URL, or another
+compatible service, select **Use a custom OpenAI-compatible endpoint** and enter
+its base URL, including a path such as `/v1` when required. Enter the model name
+accepted by that service. The scaffolder exports the URL but never its own API
+key; add your provider key later in Streamlit's private Secrets settings.
+
+For **Azure APIM**, the current workshop gateway URL is prefilled. You may
+replace it with another OpenAI-compatible APIM gateway URL. The exported app
+receives the selected URL, never the scaffolder's gateway key.
 
 ### 3. Upload a PDF or Word knowledge base
 
@@ -126,13 +141,26 @@ Click the button to process or index the files. Wait for the success message bef
 
 Only upload documents you are allowed to publish. If a generated repository will be public, assume its bundled knowledge-base material will also be public.
 
-### 4. Export to GitHub
+### 4. Optionally compare configurations in the Experiment Lab
 
-Open **Export & Deploy**. Review the checklist, connect GitHub when prompted, and choose a short repository name such as `my-asklit-app`. The scaffolder should create and populate the repository; the end user should not need a GitHub token.
+Open **Experiment Lab** to test one question against different prompts, knowledge bases, and models before exporting. Each combination makes a real model request, so select only the combinations you need. Compare the answers and retrieved sources, then return to earlier steps to adjust your configuration if needed. Experiment results are temporary and are not added to the generated repository.
+
+### 5. Export to GitHub
+
+Open **Export & Deploy**. Review the checklist, connect GitHub when prompted,
+and choose a short repository name such as `my-asklit-app`. AskLit displays a
+one-time code: open the GitHub authorization page, enter that code, approve the
+connection, and return to the still-open AskLit tab. The scaffolder should
+create and populate the repository; the end user should not need to create or
+paste a GitHub token.
 
 ![Export and GitHub options in the scaffolder](screenshots/06-export-github-options.png)
 
-On GitHub, open the new repository and check its visibility beside the repository name. For this free walkthrough, change it to **Public** under **Settings → General → Danger Zone → Change repository visibility** if the scaffolder created it as private. Before doing that, confirm there is no real `.streamlit/secrets.toml` and no confidential source document in the repository.
+The scaffolder creates a **public** repository by default for the simplest
+Streamlit Community Cloud deployment. Before publishing, confirm there is no
+real `.streamlit/secrets.toml` and no confidential source document in the
+project. Select **Make the GitHub repository private** before publishing only if
+your Streamlit account can deploy private repositories.
 
 ## Part 3: Deploy on Streamlit Community Cloud
 
@@ -197,3 +225,23 @@ Ask one question that can be answered from your uploaded PDF or Word document. C
 - The educator's Streamlit account owns the deployed app and its private secrets.
 
 That separation lets educators use the no-code workflow without receiving the scaffolder's central GitHub credentials.
+
+## Scaffolder operator: GitHub OAuth setup
+
+The central scaffolder uses GitHub's OAuth device flow so an authorization does
+not navigate away from and erase an in-progress Streamlit session.
+
+1. In GitHub, open **Settings → Developer settings → OAuth Apps** and register
+   an OAuth app owned by the central account or organization.
+2. Use `https://asklit-scaffold-lab.fly.dev/` for both the homepage and
+   authorization callback URL.
+3. Open the OAuth app's settings and enable **Device Flow**.
+4. Store only its public client ID in the deployment:
+
+   ```bash
+   flyctl secrets set GITHUB_CLIENT_ID=<client-id> --app asklit-scaffold-lab
+   ```
+
+AskLit requests the classic `repo` scope so the educator can optionally select a
+private repository. Repositories are public by default. AskLit does not deploy
+or require the OAuth client secret.

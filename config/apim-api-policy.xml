@@ -1,0 +1,72 @@
+<policies>
+  <inbound>
+    <base />
+    <choose>
+      <when condition="@(!bool.Parse(&quot;{{asklit-gateway-enabled}}&quot;))">
+        <return-response>
+          <set-status code="403" reason="Gateway disabled" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":{"message":"The AskLit educator gateway is temporarily disabled.","type":"gateway_disabled"}}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <set-variable name="requestLength"
+      value="@((context.Request.Body.As&lt;string&gt;(preserveContent: true) ?? string.Empty).Length)" />
+    <choose>
+      <when condition="@((int)context.Variables[&quot;requestLength&quot;] &gt; 200000)">
+        <return-response>
+          <set-status code="413" reason="Request too large" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":{"message":"Request exceeds the AskLit educator limit.","type":"request_too_large"}}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <set-variable name="requestAllowed" value="@{
+      try
+      {
+        var body = context.Request.Body.As&lt;Newtonsoft.Json.Linq.JObject&gt;(preserveContent: true);
+        if (body == null) { return false; }
+        var model = (string)body[&quot;model&quot;];
+        var modelAllowed =
+          model == &quot;gpt-5.4-nano&quot; ||
+          model == &quot;gpt-5.4-mini&quot; ||
+          model == &quot;gpt-5.6-sol&quot; ||
+          model == &quot;deepseek-v4-pro&quot; ||
+          model == &quot;grok-4.1-fast-reasoning&quot; ||
+          model == &quot;llama-4-maverick&quot; ||
+          model == &quot;kimi-k2.6&quot; ||
+          model == &quot;mistral-large-3&quot; ||
+          model == &quot;phi-4-mini&quot; ||
+          model == &quot;gpt-4.1-nano&quot; ||
+          model == &quot;gpt-4.1-mini&quot;;
+        var maxTokens = (int?)body[&quot;max_completion_tokens&quot;] ?? (int?)body[&quot;max_tokens&quot;];
+        return modelAllowed &amp;&amp; maxTokens.HasValue &amp;&amp; maxTokens.Value &gt; 0 &amp;&amp;
+          maxTokens.Value &lt;= 4000 &amp;&amp; body[&quot;messages&quot;] != null;
+      }
+      catch
+      {
+        return false;
+      }
+    }" />
+    <choose>
+      <when condition="@(!(bool)context.Variables[&quot;requestAllowed&quot;])">
+        <return-response>
+          <set-status code="403" reason="Request not allowed" />
+          <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+          </set-header>
+          <set-body>{"error":{"message":"The request violates the AskLit educator model or output limits.","type":"policy_restriction"}}</set-body>
+        </return-response>
+      </when>
+    </choose>
+    <set-header name="api-key" exists-action="delete" />
+    <authentication-managed-identity resource="https://cognitiveservices.azure.com" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>

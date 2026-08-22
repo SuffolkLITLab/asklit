@@ -1,6 +1,10 @@
+import toml
 from pathlib import Path
 
 import scaffold
+from asklit.db import init_db
+from asklit.auth import hash_password
+from asklit.scaffold import bundle as bundle_module
 
 
 def test_production_runtime_entrypoint_has_no_scaffolder_page_reference():
@@ -67,7 +71,7 @@ def test_workspace_yaml_rejects_unknown_schema():
 def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_path):
     source_root = tmp_path / "source"
     source_root.mkdir()
-    for source_name in scaffold.RUNTIME_ROOT_FILES:
+    for source_name in bundle_module.RUNTIME_ROOT_FILES:
         source_path = source_root / source_name
         source_path.parent.mkdir(parents=True, exist_ok=True)
         source_path.write_text(f"# {source_name}\n", encoding="utf-8")
@@ -76,7 +80,7 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
     (admin / "settings.py").write_text("# admin\n", encoding="utf-8")
     package = source_root / "asklit"
     package.mkdir()
-    for filename in scaffold.RUNTIME_ASKLIT_MODULES:
+    for filename in bundle_module.RUNTIME_ASKLIT_MODULES:
         (package / filename).write_text(f"# {filename}\n", encoding="utf-8")
     (package / "github.py").write_text("# scaffolder only\n", encoding="utf-8")
     (package / "experiments.py").write_text("# scaffolder only\n", encoding="utf-8")
@@ -111,11 +115,17 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
 
     session_data = tmp_path / "session-data"
     session_data.mkdir()
-    scaffold.init_db(str(session_data / "app.sqlite3"))
-    monkeypatch.setattr(scaffold, "__file__", str(source_root / "scaffold.py"))
+    init_db(str(session_data / "app.sqlite3"))
+    # create_bundle copies the runtime out of the repository root that contains
+    # the asklit package, so point it at the fixture tree.
+    monkeypatch.setattr(
+        bundle_module,
+        "__file__",
+        str(source_root / "asklit" / "scaffold" / "bundle.py"),
+    )
 
     bundle = Path(
-        scaffold.create_bundle(
+        bundle_module.create_bundle(
             {
                 "app": {"title": "Generated App"},
                 "model": {
@@ -167,13 +177,13 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
         "requirements.txt",
     }
     assert {path.name for path in (bundle / "asklit").iterdir()} == set(
-        scaffold.RUNTIME_ASKLIT_MODULES
+        bundle_module.RUNTIME_ASKLIT_MODULES
     )
     assert "scaffold.py" not in (bundle / "app.py").read_text(encoding="utf-8")
     assert "maxUploadSize = 10" in (bundle / ".streamlit" / "config.toml").read_text(
         encoding="utf-8"
     )
-    generated_config = scaffold.toml.load(bundle / "config" / "defaults.toml")
+    generated_config = toml.load(bundle / "config" / "defaults.toml")
     assert generated_config["model"]["base_url"] == "https://models.example/v1"
     assert "api_key" not in generated_config["model"]
     for path in bundle.rglob("*"):
@@ -183,7 +193,7 @@ def test_create_bundle_recursively_excludes_local_artifacts(monkeypatch, tmp_pat
 
 
 def test_deployment_secrets_include_custom_openai_endpoint():
-    output = scaffold.generate_deployment_secrets(
+    output = bundle_module.generate_deployment_secrets(
         {
             "app": {
                 "title": "Custom Endpoint",
@@ -203,9 +213,9 @@ def test_deployment_secrets_include_custom_openai_endpoint():
 
 
 def test_deployment_secrets_include_generated_hashes_without_plain_passwords():
-    shared_hash = scaffold.hash_password("shared password")
-    admin_hash = scaffold.hash_password("admin password")
-    output = scaffold.generate_deployment_secrets(
+    shared_hash = hash_password("shared password")
+    admin_hash = hash_password("admin password")
+    output = bundle_module.generate_deployment_secrets(
         {
             "app": {
                 "title": "Protected App",
@@ -226,7 +236,7 @@ def test_deployment_secrets_include_generated_hashes_without_plain_passwords():
 
 
 def test_deployment_secrets_include_selected_apim_gateway_url():
-    output = scaffold.generate_deployment_secrets(
+    output = bundle_module.generate_deployment_secrets(
         {
             "app": {
                 "title": "Gateway App",

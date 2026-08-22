@@ -76,7 +76,9 @@ def main():
 
         logging_enabled = st.checkbox(
             "Enable Usage Logging",
-            value=(get_setting("logging.enabled", "true") == "true"),
+            value=(
+                str(get_setting("logging.enabled", "true")).lower() == "true"
+            ),
         )
 
         if st.button("Save General Settings"):
@@ -122,7 +124,10 @@ def main():
 
         disable_temp = st.checkbox(
             "Force Disable Temperature",
-            value=(get_setting("model.disable_temperature", "false") == "true"),
+            value=(
+                str(get_setting("model.disable_temperature", "false")).lower()
+                == "true"
+            ),
             help="Some models (o1, o3, gpt-5) do not support the temperature parameter. This is automatically handled for those families, but you can force it off here.",
         )
 
@@ -160,7 +165,10 @@ def main():
 
         use_local = st.checkbox(
             "Use Local Embeddings",
-            value=(get_setting("model.use_local_embeddings", "true") == "true"),
+            value=(
+                str(get_setting("model.use_local_embeddings", "true")).lower()
+                == "true"
+            ),
             help="Enable to use a local model (free, no API key). Disable to use the remote model.",
         )
 
@@ -206,7 +214,10 @@ def main():
 
         show_citations = st.checkbox(
             "Show Citations",
-            value=(get_setting("retrieval.show_citations", "true") == "true"),
+            value=(
+                str(get_setting("retrieval.show_citations", "true")).lower()
+                == "true"
+            ),
         )
 
         if st.button("Save Model Settings"):

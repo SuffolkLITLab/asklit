@@ -35,6 +35,8 @@ max_concurrent_llm_calls = 8
 llm_queue_timeout_seconds = 180
 max_concurrent_embedding_jobs = 2
 embedding_queue_timeout_seconds = 180
+# Preview questions per Playground conversation before the student must clear it.
+max_preview_chat_turns = 12
 
 [logging]
 enabled = true

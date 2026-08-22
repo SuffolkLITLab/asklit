@@ -18,8 +18,10 @@ EXPECTED_COLUMN_NAMES = (
 )
 
 
-def build_experiment_messages(system_prompt, user_query, context_chunks):
-    """Build a one-turn RAG request from an in-progress scaffold prompt."""
+def build_experiment_messages(
+    system_prompt, user_query, context_chunks, chat_history=None
+):
+    """Build a RAG request that matches what the exported chat app will send."""
     context_parts = []
     current_length = 0
     for index, chunk in enumerate(context_chunks):
@@ -40,10 +42,13 @@ def build_experiment_messages(system_prompt, user_query, context_chunks):
         "2. If the context only partially answers the question, say what the context supports and then add any clearly labeled general guidance.\n"
         "3. If the context does not contain the answer, or if the user is asking a general question, use your general knowledge to provide a helpful response."
     )
-    return [
-        {"role": "system", "content": full_system_prompt},
-        {"role": "user", "content": user_query},
-    ]
+    messages = [{"role": "system", "content": full_system_prompt}]
+    for message in chat_history or []:
+        role = message.get("role")
+        if role in ("user", "assistant"):
+            messages.append({"role": role, "content": message.get("content", "")})
+    messages.append({"role": "user", "content": user_query})
+    return messages
 
 
 def parse_model_names(value):
@@ -260,31 +265,135 @@ def rubric_text(expected):
     return match.group(1).strip() if match else ""
 
 
-def build_rubric_judge_messages(question, answer, rubric):
+RUBRIC_PASS_THRESHOLD = 0.7
+
+
+def format_judge_context(context_chunks, max_chars=MAX_CONTEXT_CHARS):
+    """Render retrieved passages so the judge can check groundedness itself."""
+    parts = []
+    used = 0
+    for index, chunk in enumerate(context_chunks or []):
+        content = str(chunk.get("content", "")).strip()
+        if not content:
+            continue
+        if used + len(content) > max_chars:
+            break
+        metadata = chunk.get("metadata") or {}
+        page = metadata.get("page_number")
+        label = f"SOURCE {index + 1}" + (f" (page {page})" if page else "")
+        parts.append(f"--- {label} ---\n{content}")
+        used += len(content)
+    return "\n\n".join(parts)
+
+
+def build_rubric_judge_messages(
+    question,
+    answer,
+    rubric,
+    context_chunks=None,
+    pass_threshold=RUBRIC_PASS_THRESHOLD,
+):
     """Build a constrained JSON request for a model-graded rubric."""
+    context = format_judge_context(context_chunks)
+    grounding_rule = (
+        "Judge groundedness only against the RETRIEVED CONTEXT below; treat any "
+        "claim absent from it as unsupported."
+        if context
+        else "No retrieved context was supplied, so do not guess whether claims are "
+        "grounded in source material; grade only the rules you can actually check."
+    )
     return [
         {
             "role": "system",
             "content": (
                 "You are an evaluation judge. Grade the answer against the rubric. "
-                "Return only a JSON object with numeric score from 0 to 1 and a "
-                "short narrative explanation in the reason field. Pass means the "
-                "answer substantially satisfies all listed rubric rules; do not "
-                "require exact wording. The application determines pass/fail from "
-                "the score, so do not omit score."
+                "Return only a JSON object with a numeric score from 0 to 1 and a "
+                "short narrative explanation in the reason field. "
+                f"The application counts {pass_threshold:.2f} or higher as a pass, so "
+                "score at or above that only when the answer substantially satisfies "
+                "every listed rubric rule; do not require exact wording. "
+                f"{grounding_rule} "
+                "The application determines pass/fail from the score, so do not omit score."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"QUESTION:\n{question}\n\nANSWER:\n{answer}\n\n"
-                f"RUBRIC:\n{rubric}"
+                f"QUESTION:\n{question}\n\n"
+                + (f"RETRIEVED CONTEXT:\n{context}\n\n" if context else "")
+                + f"ANSWER:\n{answer}\n\nRUBRIC:\n{rubric}"
             ),
         },
     ]
 
 
-def parse_rubric_grade(text, pass_threshold=0.7):
+def resolve_rubric_rules(shared_rules, expected):
+    """Combine workspace-wide rubric rules with a row's own llm-rubric label."""
+    row_rule = rubric_text(expected) if is_model_rubric(expected) else ""
+    rules = [str(rule).strip() for rule in (shared_rules or []) if str(rule).strip()]
+    if row_rule:
+        rules.append(row_rule)
+    return rules
+
+
+def deterministic_grade(answer, expected):
+    """Grade a row's gold label, or return None when it delegates to a judge."""
+    expected = str(expected or "").strip()
+    if not expected or is_model_rubric(expected):
+        return None
+    return evaluate_expected(answer, expected)
+
+
+def combine_grades(deterministic, rubric):
+    """Require both a gold label and a rubric to pass when both are configured.
+
+    Shared rubric rules must never silently discard a row's own assertion, so a
+    row graded by both is only a pass when each grader passes.
+    """
+    if deterministic is None and rubric is None:
+        return {"passed": None, "score": None, "reason": "No gold label"}
+    if deterministic is None:
+        return dict(rubric)
+    if rubric is None:
+        return dict(deterministic)
+    if deterministic.get("passed") is None or rubric.get("passed") is None:
+        reasons = [
+            str(grade.get("reason", "")).strip()
+            for grade in (deterministic, rubric)
+            if str(grade.get("reason", "")).strip()
+        ]
+        return {
+            "passed": None,
+            "score": None,
+            "reason": " · ".join(reasons) or "Not graded",
+        }
+    scores = [
+        grade.get("score")
+        for grade in (deterministic, rubric)
+        if grade.get("score") is not None
+    ]
+    return {
+        "passed": bool(deterministic["passed"]) and bool(rubric["passed"]),
+        "score": min(scores) if scores else None,
+        "reason": (
+            f"Gold label ({deterministic['reason']}): "
+            f"{'pass' if deterministic['passed'] else 'fail'} · {rubric['reason']}"
+        ),
+    }
+
+
+def grader_label(deterministic, rubric):
+    """Name the graders that actually decided a row's outcome."""
+    if deterministic is not None and rubric is not None:
+        return "gold label + model rubric"
+    if rubric is not None:
+        return "model rubric"
+    if deterministic is not None:
+        return "gold label"
+    return "ungraded"
+
+
+def parse_rubric_grade(text, pass_threshold=RUBRIC_PASS_THRESHOLD):
     """Parse a judge response and normalize it to AskLit's grade shape."""
     value = str(text or "").strip()
     fenced = re.search(

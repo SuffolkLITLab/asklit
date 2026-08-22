@@ -5,12 +5,16 @@ from asklit.experiments import (
     build_experiment_matrix,
     build_experiment_messages,
     build_rubric_judge_messages,
+    combine_grades,
+    deterministic_grade,
     evaluate_expected,
+    grader_label,
     is_model_rubric,
     parse_generated_scenarios,
     parse_model_names,
     parse_rubric_grade,
     parse_scenario_csv,
+    resolve_rubric_rules,
     response_text,
     scenarios_to_csv,
 )
@@ -169,3 +173,103 @@ def test_evaluation_matrix_crosses_scenarios_prompts_and_models():
 
     assert len(matrix) == 8
     assert {item["scenario"]["input"] for item in matrix} == {"First", "Second"}
+
+
+def test_experiment_messages_include_prior_turns_like_the_deployed_chat():
+    messages = build_experiment_messages(
+        "You help with housing.",
+        "What about the second option?",
+        [{"content": "Tenants may request repairs in writing. " * 5}],
+        chat_history=[
+            {"role": "user", "content": "What are my options?"},
+            {"role": "assistant", "content": "You have two options."},
+            {"role": "system", "content": "should be dropped"},
+        ],
+    )
+
+    assert [message["role"] for message in messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert messages[1]["content"] == "What are my options?"
+    assert messages[-1]["content"] == "What about the second option?"
+
+
+def test_experiment_messages_without_history_stay_single_turn():
+    messages = build_experiment_messages("Prompt", "Question", [])
+
+    assert [message["role"] for message in messages] == ["system", "user"]
+
+
+def test_rubric_judge_sees_retrieved_passages_and_the_pass_threshold():
+    messages = build_rubric_judge_messages(
+        "What notice is required?",
+        "Fourteen days.",
+        "- Stays grounded in the retrieved passages",
+        context_chunks=[
+            {"content": "Fourteen days notice is required.", "metadata": {"page_number": 3}}
+        ],
+    )
+
+    assert "RETRIEVED CONTEXT" in messages[1]["content"]
+    assert "page 3" in messages[1]["content"]
+    assert "0.70" in messages[0]["content"]
+    assert "Judge groundedness only against the RETRIEVED CONTEXT" in messages[0]["content"]
+
+
+def test_judge_is_told_not_to_guess_when_no_context_was_retrieved():
+    messages = build_rubric_judge_messages("Q", "A", "- Be clear")
+
+    assert "RETRIEVED CONTEXT" not in messages[1]["content"]
+    assert "do not guess whether claims are grounded" in messages[0]["content"]
+
+
+def test_shared_rules_combine_with_a_row_rubric():
+    rules = resolve_rubric_rules(
+        ["Answers in plain language"], "llm-rubric:Names the filing deadline"
+    )
+
+    assert rules == ["Answers in plain language", "Names the filing deadline"]
+
+
+def test_shared_rules_apply_to_rows_with_a_deterministic_label():
+    assert resolve_rubric_rules(["Be clear"], "icontains:notice") == ["Be clear"]
+    assert resolve_rubric_rules([], "icontains:notice") == []
+
+
+def test_deterministic_grade_is_skipped_for_rubric_rows():
+    assert deterministic_grade("anything", "llm-rubric:Be clear") is None
+    assert deterministic_grade("anything", "") is None
+    assert deterministic_grade("says notice", "icontains:notice")["passed"] is True
+
+
+def test_both_graders_must_pass_when_both_are_configured():
+    gold_pass = {"passed": True, "score": 1.0, "reason": "icontains"}
+    gold_fail = {"passed": False, "score": 0.0, "reason": "icontains"}
+    rubric_pass = {"passed": True, "score": 0.9, "reason": "Model rubric: good"}
+    rubric_fail = {"passed": False, "score": 0.2, "reason": "Model rubric: vague"}
+
+    assert combine_grades(gold_pass, rubric_pass)["passed"] is True
+    assert combine_grades(gold_pass, rubric_fail)["passed"] is False
+    assert combine_grades(gold_fail, rubric_pass)["passed"] is False
+    # The stricter of the two scores is reported, never just the judge's.
+    assert combine_grades(gold_pass, rubric_pass)["score"] == 0.9
+
+
+def test_a_single_grader_is_reported_unchanged():
+    gold = {"passed": True, "score": 1.0, "reason": "icontains"}
+
+    assert combine_grades(gold, None) == gold
+    assert combine_grades(None, gold) == gold
+    assert combine_grades(None, None)["passed"] is None
+
+
+def test_grader_label_names_the_graders_that_decided_the_row():
+    grade = {"passed": True, "score": 1.0, "reason": "r"}
+
+    assert grader_label(grade, grade) == "gold label + model rubric"
+    assert grader_label(None, grade) == "model rubric"
+    assert grader_label(grade, None) == "gold label"
+    assert grader_label(None, None) == "ungraded"

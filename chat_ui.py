@@ -420,7 +420,7 @@ def main():
 
                 # Show citations if enabled
                 if (
-                    get_setting("retrieval.show_citations", "true") == "true"
+                    str(get_setting("retrieval.show_citations", "true")).lower() == "true"
                     and context_chunks
                 ):
                     render_citations(context_chunks)
@@ -445,7 +445,7 @@ def main():
             )
 
             # Log to DB
-            if get_setting("logging.enabled", "true") == "true":
+            if str(get_setting("logging.enabled", "true")).lower() == "true":
                 try:
                     conn = get_connection()
                     cursor = conn.cursor()

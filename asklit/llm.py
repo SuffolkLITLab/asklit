@@ -59,6 +59,35 @@ def get_allowed_models():
     return [str(model).strip() for model in models if str(model).strip()]
 
 
+def resolve_allowed_models(extra_allowed_models=None):
+    """Return the effective allowlist for this host.
+
+    A configured ``model.allowed_models`` is always the ceiling. Only when the
+    operator has not set one does a caller-supplied list (for example the models
+    an endpoint actually reported) stand in, so the scaffolder can offer real
+    choices without ever widening an allowlist the operator did set.
+    """
+    configured = get_allowed_models()
+    if configured:
+        return configured
+    if isinstance(extra_allowed_models, str):
+        extra_allowed_models = extra_allowed_models.split(",")
+    return [
+        str(model).strip()
+        for model in (extra_allowed_models or [])
+        if str(model).strip()
+    ]
+
+
+def _release_when_stream_ends(response, release):
+    """Hold a queue slot until a streamed response is fully consumed."""
+    try:
+        for part in response:
+            yield part
+    finally:
+        release()
+
+
 def call_llm(
     messages,
     stream=True,
@@ -66,11 +95,12 @@ def call_llm(
     model_override=None,
     provider_override=None,
     enforce_model_allowlist=True,
+    extra_allowed_models=None,
 ):
     """Call the configured LLM provider using LiteLLM."""
     configured_model = get_setting("model.name", "gpt-5.4-mini")
     model = str(model_override or configured_model).strip()
-    allowed_models = get_allowed_models()
+    allowed_models = resolve_allowed_models(extra_allowed_models)
     is_configured_model = model == str(configured_model).strip()
     if (
         enforce_model_allowlist
@@ -82,7 +112,9 @@ def call_llm(
     provider = str(provider_override or get_setting("model.provider", "openai")).strip()
     temperature = float(get_setting("model.temperature", 1.0))
     max_tokens = _bounded_max_tokens(max_tokens_override)
-    disable_temp_setting = get_setting("model.disable_temperature", "false") == "true"
+    disable_temp_setting = (
+        str(get_setting("model.disable_temperature", "false")).lower() == "true"
+    )
 
     api_key = get_api_key(provider)
     base_url = get_base_url(provider)
@@ -145,23 +177,37 @@ def call_llm(
     acquired = call_slots.acquire(timeout=wait_seconds)
     if not acquired:
         raise RuntimeError(
-            "The AI service is busy with other playground users. Please run this test again."
+            "The AI service is busy with other users. Please run this test again."
         )
+    released = False
+
+    def release_once():
+        nonlocal released
+        if not released:
+            released = True
+            call_slots.release()
+
     try:
-        try:
-            return litellm.completion(**completion_kwargs)
-        except Exception as exc:
-            logger.error(
-                "LLM request failed provider=%s model=%s stream=%s error_type=%s error=%s",
-                provider,
-                model,
-                stream,
-                type(exc).__name__,
-                safe_error_message(exc),
-            )
-            raise
-    finally:
-        call_slots.release()
+        response = litellm.completion(**completion_kwargs)
+    except Exception as exc:
+        logger.error(
+            "LLM request failed provider=%s model=%s stream=%s error_type=%s error=%s",
+            provider,
+            model,
+            stream,
+            type(exc).__name__,
+            safe_error_message(exc),
+        )
+        release_once()
+        raise
+
+    if not stream:
+        release_once()
+        return response
+
+    # A streamed response has not spent its share of the gateway until the
+    # caller finishes reading it, so the slot stays held until then.
+    return _release_when_stream_ends(response, release_once)
 
 
 def estimate_tokens(text):

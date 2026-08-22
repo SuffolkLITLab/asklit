@@ -100,61 +100,118 @@ You do **not** need to create a GitHub personal access token. The centralized As
 
 ## Part 2: Build the project in the AskLit Scaffolder
 
-Open <https://asklit-scaffold.streamlit.app/> in a wide browser window. If the left sidebar covers the form, click its collapse arrow or maximize the browser.
+Open <https://asklit-scaffold.streamlit.app/> in a wide browser window. If the
+left sidebar covers the form, click its collapse arrow or maximize the browser.
 
-### 1. Name and describe the app
+The scaffolder is one five-step workflow, listed in the sidebar. You build the
+assistant first and configure the deployment last, so you never have to pick a
+favicon before you know whether the answers are any good. Steps can be revisited
+in any order, and nothing is published until you choose Export.
 
-Enter the public-facing title, welcome message, and organization details. If the
-chat is password protected, enter and confirm its password on this screen.
-AskLit immediately replaces the plain password with a PBKDF2 hash and inserts
-that hash into the deployment settings later. Configure the administrator
-password here as well when the admin backend is enabled. Do not enter API keys;
-those belong only in the deployed app's private Streamlit Secrets.
+If your instructor gave you a scaffolder access password, **3. Chat** and
+**4. Evaluate** will ask for it once per browser session. Those two steps make
+real model requests that cost your program money; the other three do not.
 
-![AskLit Scaffolder identity and branding screen](screenshots/01-scaffolder-identity.png)
+### 1. Knowledge — upload a PDF or Word knowledge base
 
-### 2. Choose the administrator-provided model settings
-
-Choose the model provider and model specified by your program administrator. For a Tulane cohort deployment, use the values supplied with the Tulane configuration rather than guessing.
-
-When using **OpenAI** with a proxy, Azure OpenAI-compatible URL, or another
-compatible service, select **Use a custom OpenAI-compatible endpoint** and enter
-its base URL, including a path such as `/v1` when required. Enter the model name
-accepted by that service. The scaffolder exports the URL but never its own API
-key; add your provider key later in Streamlit's private Secrets settings.
-
-For **Azure APIM**, the current workshop gateway URL is prefilled. You may
-replace it with another OpenAI-compatible APIM gateway URL. The exported app
-receives the selected URL, never the scaffolder's gateway key.
-
-### 3. Upload a PDF or Word knowledge base
-
-Open **Knowledge Base**, click **Browse files**, and choose one or more PDF or DOCX files. You can also drag files onto the upload area.
-
-The filename appears after the upload finishes.
+Click **Browse files** and choose one or more PDF, DOCX, TXT, or MD files. You
+can also drag files onto the upload area. The filename appears after the upload
+finishes.
 
 ![A PDF selected as the knowledge base](screenshots/04-pdf-selected.png)
 
-Click the button to process or index the files. Wait for the success message before moving on. Indexing is what makes the documents searchable by AskLit.
+Click **Process & Index Documents** and wait for the success message. Indexing is
+what makes the documents searchable by AskLit. Documents already in this
+knowledge base are listed above the uploader, and re-uploading the same file is
+skipped rather than indexed twice.
 
 ![Knowledge base successfully indexed](screenshots/05-knowledgebase-indexed.png)
 
-Only upload documents you are allowed to publish. If a generated repository will be public, assume its bundled knowledge-base material will also be public.
+Only upload documents you are allowed to publish. If a generated repository will
+be public, assume its bundled knowledge-base material will also be public.
 
-### 4. Optionally compare configurations in the Experiment Lab
+### 2. Prompt — tell the assistant how to behave
 
-Open **Experiment Lab** to test one question against different prompts, knowledge bases, and models before exporting. Each combination makes a real model request, so select only the combinations you need. Compare the answers and retrieved sources, then return to earlier steps to adjust your configuration if needed. Experiment results are temporary and are not added to the generated repository.
+Write the system prompt, name the prompt, and confirm the knowledge-base name it
+should search. If the step warns that no indexed documents belong to that
+knowledge base, fix it before continuing — an assistant with no sources will
+still answer, just from general knowledge instead of your documents.
 
-### 5. Export to GitHub
+Add one conversation starter per line; these become the suggestion buttons a
+visitor sees in the deployed chat. **Advanced: deployment details for this
+prompt** holds the YAML key and lets you restrict the prompt to specific
+documents. Use **Add another prompt** when one app should offer several
+assistants, each with its own knowledge base.
 
-Open **Export & Deploy**. Review the checklist, connect GitHub when prompted,
-and choose a short repository name such as `my-asklit-app`. AskLit displays a
-one-time code: open the GitHub authorization page, enter that code, approve the
-connection, and return to the still-open AskLit tab. The scaffolder should
-create and populate the repository; the end user should not need to create or
-paste a GitHub token.
+### 3. Chat — try it before you measure it
+
+Ask the assistant a few questions. Open **Sources used** under any answer to see
+exactly which passages it retrieved; if that list is empty, the answer did not
+come from your documents. Switch the model in the second dropdown to ask the
+same follow-up of a different model without losing the transcript.
+
+Each conversation allows twelve questions. Click **Clear preview chat** to start
+a fresh one, or move to Evaluate when you want repeatable measurements rather
+than one-off impressions.
+
+### 4. Evaluate — measure the assistant instead of guessing
+
+A conversation tells you how the assistant felt on the questions you happened to
+think of. An evaluation tells you how it performs on the questions you decided
+matter, every time you change something.
+
+Write scenarios in the table, or click **Generate gold-labeled scenarios** to
+draft them from your uploaded material and edit what comes back. In the **Gold
+label** column:
+
+* Plain text requires an exact match.
+* `icontains:fourteen days` requires that phrase, ignoring case — use this when
+  specific words must appear.
+* `llm-rubric:Explains the next practical step and stays grounded in the
+  retrieved passages` asks a judge model to score the answer — use this when
+  different wording should still get credit.
+
+Under **2. Run settings**, start with **Single model**. Once you have a scenario
+set you trust, switch to **Prompt × model matrix** to run every scenario through
+several prompts and models at once and see which combination wins. Each
+combination is a real model request, and rubric rows add a judge request, so the
+step tells you the exact call count before you press Run.
+
+Read the rationale column, not just the pass rate — that is how you find out
+whether the judge agreed with you for the right reason. When you are satisfied,
+**Carry a result forward** applies the winning prompt and model to the app you
+are about to export.
+
+### 5. Export — configure the deployment and publish
+
+This step holds everything the deployed app needs and the earlier steps
+deliberately left out. Work down the panels:
+
+* **App settings** — public title and welcome message.
+* **AI model** — the provider and model specified by your program administrator.
+  For a Tulane cohort deployment, use the values supplied with the Tulane
+  configuration rather than guessing. When using **OpenAI** with a proxy, an
+  Azure OpenAI-compatible URL, or another compatible service, select **Use a
+  custom OpenAI-compatible endpoint** and enter its base URL, including a path
+  such as `/v1` when required. For **Azure APIM**, the current workshop gateway
+  URL is prefilled. The scaffolder exports the URL but never its own API key.
+* **Access and branding** — who may use the chat, the passwords, and the logo,
+  favicon, homepage, and footer. If the chat is password protected, enter and
+  confirm its password here; AskLit immediately replaces the plain password with
+  a PBKDF2 hash and inserts that hash into the deployment settings. Configure the
+  administrator password here as well when the admin backend is enabled. Do not
+  enter API keys anywhere in the scaffolder; those belong only in the deployed
+  app's private Streamlit Secrets.
+* **Prompts**, **Knowledge bases**, **Evaluation** — a final review of what you
+  built.
 
 ![Export and GitHub options in the scaffolder](screenshots/06-export-github-options.png)
+
+Then review the checklist, connect GitHub when prompted, and choose a short
+repository name such as `my-asklit-app`. AskLit displays a one-time code: open
+the GitHub authorization page, enter that code, approve the connection, and
+return to the still-open AskLit tab. The scaffolder should create and populate
+the repository; you should not need to create or paste a GitHub token.
 
 The scaffolder creates a **public** repository by default for the simplest
 Streamlit Community Cloud deployment. Before publishing, confirm there is no

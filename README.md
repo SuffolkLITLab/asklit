@@ -8,7 +8,7 @@ For a more robust deployment, you can deploy it to fly.io or another inexpensive
 
 ## 🚀 Quick Start: The Scaffolder
 
-The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. Start in **Playground** mode to add a knowledge base, write a prompt, try a conversational preview, and then build formal evaluations before exporting. **Builder** mode exposes the full branding, access-control, and model-configuration workflow from the beginning.
+The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. It is one five-step workflow: add a knowledge base, write a prompt, try the assistant conversationally, measure it against gold-labeled scenarios, and only then configure branding, access control, and deployment on the way out.
 
 ### 1. Requirements
 Before you start, make sure you have:
@@ -18,29 +18,50 @@ Before you start, make sure you have:
     *   *Note:* If you want to use a custom or local endpoint, AskLit supports any OpenAI-compatible API.
 
 ### 2. Using the Scaffolder
-1.  **Launch the Scaffolder:** Open the "Project Scaffolder" tab in the sidebar of this app.
-2.  **Identity & Branding:** 
-    *   Set your app title and welcome message.
-    *   **Prompt & Knowledge Base Pairings:** Define one or more prompts and the knowledge base each one should search.
-    *   **Custom Branding:** Upload your own logo and favicon.
-    *   *(Insert Screenshot: Scaffolder Step 1)*
-3.  **AI Configuration:** Choose your model provider (e.g., OpenAI) and the model name (the default is `gpt-5.4-mini`).
-4.  **Knowledge Upload:** Drag and drop your PDFs, Word docs, or Text files. The tool will chunk and embed them locally so you can see your knowledge base built in real-time.
-    *   *(Insert Screenshot: Scaffolder Step 3)*
-5.  **Experiment Lab:** Create gold-labeled scenarios in an editable Streamlit table, generate grounded scenarios with AI, or upload a Promptfoo-style CSV using `input` (or `question`/`query`) and `__expected` columns. Run all scenarios against one model or use matrix mode to cross scenarios, prompts, knowledge bases, and models. Results appear in a sortable, filterable table with answers, grades, sources, latency, and approximate tokens. Experiment history is not added to the exported app.
-    *   Plain `__expected` values use exact matching. The lab also evaluates `contains:`, `icontains:`, `contains-any:`, `icontains-any:`, `contains-all:`, and `icontains-all:` assertions. Other Promptfoo assertion types remain visible and are marked ungraded.
-    *   For more flexible grading, use `llm-rubric:your criteria here` in `__expected`, or add shared rules in the advanced rubric panel. The lab asks the selected judge model for a JSON score plus narrative rationale (0.70 passes), highlights passing/failing rows, and summarizes pass rate by prompt × model. Judge calls are additional model calls, so begin with a small scenario set.
-    *   Example: `llm-rubric:Explains the next practical step, stays grounded in the guide, and acknowledges uncertainty`. Use exact or `icontains:` labels when a required phrase must appear; use a rubric when equivalent wording should receive credit.
-    *   For criteria that apply across a whole scenario set, open **Advanced: shared rules for every scenario** and add one shared rule per line. Shared rules are saved in workspace YAML and combined with any row-level `llm-rubric:` labels.
-    *   Download the complete, unfiltered evaluation table as CSV after a run.
-    *   AskLit identifies Azure AI and APIM URLs even when they use the `openai` provider alias. For small OpenAI-compatible `/models` responses, the lab shows the returned models directly. Azure `/models` responses are treated as catalog entries—not proof of deployment—so Azure experiments use the configured deployment allowlist instead.
-    *   For a different Azure account, set `"model.allowed_models"` in Streamlit secrets or `MODEL_ALLOWED_MODELS` in `.env` to the deployment names that account actually exposes.
-6.  **Export & Deploy:**
-    *   **Connect GitHub:** Click the button, enter AskLit's one-time code on GitHub, and approve repository access.
-    *   **Secrets Generator:** Copy the pre-formatted TOML block from **Deployment Settings & Secrets**. Passwords entered in the Identity step are hashed automatically and inserted into this block.
-    *   **Push:** Click "Create Repo & Push". This creates a public repository by default with your settings and documents pre-indexed. Select the private-repository checkbox first if your Streamlit plan supports private repositories.
+
+Steps can be visited in any order from the sidebar; nothing leaves your browser session until you choose Export.
+
+#### 1. Knowledge
+Drag and drop your PDFs, Word docs, or text files. The tool chunks and embeds them locally so you can watch the knowledge base build in real time. Files already indexed are listed, and a document whose contents you have uploaded before is skipped instead of being indexed twice. A file that cannot be read is reported by name; the rest of the batch still indexes.
+
+#### 2. Prompt
+Write the system prompt and name the knowledge base it may search. Renaming a knowledge base moves the documents already indexed under the old name, so retrieval keeps working. If a prompt points at a knowledge base with no documents, the step says so — an assistant that quietly answers from general knowledge is the hardest RAG failure for a beginner to spot. **Advanced: deployment details** holds the YAML key and the per-prompt file list; add more prompts to give the deployed chat a sidebar choice between them.
+
+#### 3. Chat
+Try the assistant conversationally. The preview sends prior turns and shows the passages each answer retrieved, so it behaves like the app you would deploy. Conversation starters appear as buttons, switching models keeps the transcript so you can compare two models on the same question, and each conversation is capped at `limits.max_preview_chat_turns` questions (12 by default) so one browser tab cannot drain a shared class budget.
+
+#### 4. Evaluate
+Create gold-labeled scenarios in an editable table, generate grounded scenarios with AI, or upload a Promptfoo-style CSV using `input` (or `question`/`query`) and `__expected` columns. Run all scenarios against one model or use matrix mode to cross scenarios, prompts, knowledge bases, and models. Results appear in a sortable, filterable table with answers, grades, sources, latency, and approximate tokens. Experiment history is not added to the exported app.
+
+*   Plain `__expected` values use exact matching. The lab also evaluates `contains:`, `icontains:`, `contains-any:`, `icontains-any:`, `contains-all:`, and `icontains-all:` assertions. Other Promptfoo assertion types remain visible and are marked ungraded.
+*   For more flexible grading, use `llm-rubric:your criteria here` in `__expected`, or add shared rules in the advanced rubric panel. The lab asks the selected judge model for a JSON score plus narrative rationale (0.70 passes), highlights passing/failing rows, and summarizes pass rate by prompt × model. The judge sees the retrieved passages, so a rule about staying grounded in the sources can actually be checked. Judge calls are additional model calls that are logged and counted separately, so begin with a small scenario set.
+*   Example: `llm-rubric:Explains the next practical step, stays grounded in the retrieved passages, and acknowledges uncertainty`. Use exact or `icontains:` labels when a required phrase must appear; use a rubric when equivalent wording should receive credit.
+*   For criteria that apply across a whole scenario set, open **Advanced: shared rules for every scenario** and add one shared rule per line. Shared rules are saved in workspace YAML and combined with any row-level `llm-rubric:` labels. **A row that has both a gold label and shared rules passes only when both graders pass** — a shared rubric never overrides the assertion you wrote.
+*   After a run, **Carry a result forward** applies the winning prompt × model combination to the exported app, defaulting to the highest pass rate.
+*   Download the complete, unfiltered evaluation table as CSV after a run.
+*   AskLit identifies Azure AI and APIM URLs even when they use the `openai` provider alias. For small OpenAI-compatible `/models` responses, the lab shows the returned models directly. Azure `/models` responses are treated as catalog entries—not proof of deployment—so Azure experiments use the configured deployment allowlist instead.
+*   For a different Azure account, set `"model.allowed_models"` in Streamlit secrets or `MODEL_ALLOWED_MODELS` in `.env` to the deployment names that account actually exposes. When that setting exists it is a hard ceiling: the scaffolder will not run a model outside it, no matter what an endpoint reports.
+
+#### 5. Export
+Every deployment setting lives here, in collapsible panels: app title and welcome message, provider/endpoint/model, access control and passwords, logo and favicon uploads, footer and links, a last look at each prompt, and a summary of what each knowledge base holds.
+
+*   **Secrets Generator:** Copy the pre-formatted TOML block from **Deployment settings & secrets**. Passwords entered above are hashed automatically and inserted into this block.
+*   **Connect GitHub:** Click the button, enter AskLit's one-time code on GitHub, and approve repository access.
+*   **Push:** Click "Create Repo & Push". This creates a public repository by default with your settings and documents pre-indexed. Select the private-repository checkbox first if your Streamlit plan supports private repositories.
 
 At any point, open **Save or resume** in the sidebar to download a workspace YAML file. It contains app settings, prompts, knowledge-base pairings, and evaluation scenarios, but never API keys, uploaded file contents, vector indexes, or generated evaluation answers. Importing it later starts fresh isolated storage and lists the documents or branding images that need to be uploaded again.
+
+### Protecting the steps that cost money
+
+Uploading documents, writing prompts, and exporting a project cost the scaffolder host nothing. **Chat** and **Evaluate** bill real completions to the operator's key, so they can sit behind a shared password. Set one in Streamlit secrets and those two steps ask for it once per browser session:
+
+```toml
+SCAFFOLD_PASSWORD = "class-2026"
+# or, to avoid storing the plain text, a PBKDF2 hash from the admin hash tool:
+# SCAFFOLD_PASSWORD_HASH = "$pbkdf2-sha256$..."
+```
+
+When neither secret is set the gate stays open, so local development and existing deployments are unchanged. Five wrong guesses pause that browser session for a minute.
 
 ### Classroom concurrency
 
@@ -136,10 +157,24 @@ If you are a developer and want to run or modify AskLit locally:
 
 ```text
 app.py                         Navigation entrypoint
-scaffold.py                    The "Project Scaffolder" wizard
+scaffold.py                    Scaffolder entrypoint: routes steps, applies the access gate
 chat_ui.py                     The public chat interface
 admin/                         Management tools (Settings, Knowledge Base, Logs)
 asklit/                        Core logic (RAG, LLM, Ingestion)
+asklit/scaffold/               The scaffolder, one module per step:
+  step_knowledge.py              1. upload and index documents
+  step_prompt.py                 2. write the prompt and pair a knowledge base
+  step_chat.py                   3. conversational preview
+  step_evaluate.py               4. scenarios, matrix runs, and grading
+  step_export.py                 5. deployment settings, ZIP, and GitHub push
+  access.py                      password gate for the billed steps
+  bundle.py                      build the deployable runtime
+  config.py                      workspace configuration shapes
+  endpoints.py                   model discovery and the host allowlist
+  evaluation.py                  the evaluation runner (no Streamlit)
+  knowledge.py                   indexing, deduplication, renaming
+  ui.py                          shared widgets and step navigation
+  workspace.py                   save/resume YAML
 config/defaults.toml           Default settings (overridden by DB and Secrets)
 data/                          Your pre-indexed knowledge base (SQLite + Chroma)
 ```

@@ -32,6 +32,7 @@ from asklit.scaffold.config import (
     DEFAULT_MODEL_NAME,
     ensure_model_defaults,
     normalize_prompt_profiles,
+    profiles_still_using_the_default_prompt,
     provider_options,
 )
 from asklit.scaffold.endpoints import (
@@ -40,6 +41,11 @@ from asklit.scaffold.endpoints import (
 )
 from asklit.scaffold.knowledge import knowledgebase_document_counts
 from asklit.scaffold.step_chat import preview_model_choices
+from asklit.scaffold.step_prompt import (
+    seed_widget_state,
+    sync_conversation_starters,
+    sync_prompt_text,
+)
 from asklit.scaffold.ui import render_password_hash_setup, session_paths
 
 REQUEST_TIMEOUT_SECONDS = 20
@@ -369,29 +375,47 @@ def _render_branding_assets():
 
 
 def _render_prompt_summary():
-    """Last chance to adjust prompt text and starters before publishing."""
+    """Last chance to adjust prompt text and starters before publishing.
+
+    These fields edit the same profiles as step 2, so they use the same keyed
+    autosave: the widget owns its text and an on_change callback writes it into
+    the workspace config. Assigning the widget's return value here instead let
+    a stale value seeded before an edit overwrite the newer text.
+    """
     config = st.session_state.app_config
     profiles = normalize_prompt_profiles(config.get("prompt_profiles"))
     config["prompt_profiles"] = profiles
+    unwritten = profiles_still_using_the_default_prompt(profiles)
+    if unwritten:
+        st.warning(
+            "Still using the stock prompt: "
+            + ", ".join(f"`{label}`" for label in unwritten)
+            + ". Exporting now ships \"You are a helpful assistant.\" as the "
+            "deployed prompt. Edit it below or in **2. Prompt** first."
+        )
     with st.expander("Prompts and conversation starters", expanded=True):
         for index, profile in enumerate(profiles):
             st.markdown(f"**{profile['label']}** · `{profile['knowledgebase']}`")
-            profile["prompt"] = st.text_area(
+            prompt_key = f"export_prompt_{index}"
+            seed_widget_state(prompt_key, profile["prompt"])
+            st.text_area(
                 f"System prompt — {profile['label']}",
-                profile["prompt"],
-                key=f"export_prompt_{index}",
+                key=prompt_key,
                 height=140,
+                on_change=sync_prompt_text,
+                args=(index, prompt_key),
             )
-            profile["conversation_starters"] = [
-                line.strip()
-                for line in st.text_area(
-                    f"Conversation starters — {profile['label']}",
-                    "\n".join(profile.get("conversation_starters", [])),
-                    key=f"export_starters_{index}",
-                    height=90,
-                ).splitlines()
-                if line.strip()
-            ]
+            starters_key = f"export_starters_{index}"
+            seed_widget_state(
+                starters_key, "\n".join(profile.get("conversation_starters", []))
+            )
+            st.text_area(
+                f"Conversation starters — {profile['label']}",
+                key=starters_key,
+                height=90,
+                on_change=sync_conversation_starters,
+                args=(index, starters_key),
+            )
 
 
 def _render_knowledge_summary():

@@ -20,6 +20,7 @@ from asklit.llm import call_llm, get_allowed_models
 from asklit.scaffold.config import (
     ensure_model_defaults,
     normalize_prompt_profiles,
+    profiles_still_using_the_default_prompt,
     provider_options,
 )
 from asklit.scaffold.endpoints import (
@@ -366,6 +367,24 @@ def _render_run_settings(profiles, labels, model_choices, default_model):
     return prompt_keys, knowledgebase_keys, model_names
 
 
+def _warn_about_unwritten_prompts(profiles):
+    """Say so before scoring a prompt the learner never actually wrote.
+
+    A prompt left at the stock text scores badly for a reason that has nothing
+    to do with the scenarios, and the run still costs model calls.
+    """
+    unwritten = profiles_still_using_the_default_prompt(profiles)
+    if not unwritten:
+        return
+    st.warning(
+        "Still using the stock prompt: "
+        + ", ".join(f"`{label}`" for label in unwritten)
+        + ". These runs will score \"You are a helpful assistant.\" rather than "
+        "your own instructions, so expect poor results. Write the prompt in "
+        "**2. Prompt** first."
+    )
+
+
 def _warn_about_unindexed_knowledgebases(profiles, knowledgebase_keys, db_path):
     """Catch the silent failure where a prompt points at an empty knowledge base."""
     counts = knowledgebase_document_counts(db_path)
@@ -606,6 +625,7 @@ def render_evaluate_step():
         "Each combination makes a real model call using credentials configured for this scaffolder. "
         "Your provider may charge for these calls."
     )
+    _warn_about_unwritten_prompts(profiles)
 
     provider, provider_ready, untrusted_custom_endpoint = _render_provider_controls(
         model_config

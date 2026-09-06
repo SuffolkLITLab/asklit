@@ -66,6 +66,20 @@ def normalize_prompt_profiles(profiles):
     return normalized
 
 
+def profiles_still_using_the_default_prompt(profiles):
+    """Name the prompts nobody has actually written yet.
+
+    A prompt that silently stays at DEFAULT_PROMPT_TEXT reaches evaluation and
+    export looking like a real one, so the scores describe the stock assistant
+    and the deployed prompts/*.yml ships it. Callers warn on a non-empty list.
+    """
+    return [
+        profile["label"]
+        for profile in profiles
+        if str(profile.get("prompt") or "").strip() == DEFAULT_PROMPT_TEXT
+    ]
+
+
 def ensure_model_defaults(config_data):
     """Keep Export usable even when someone skips the AI Model step."""
     model = config_data.setdefault("model", {})

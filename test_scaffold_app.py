@@ -1,6 +1,7 @@
 """End-to-end checks of the scaffolder's single workflow via Streamlit's AppTest."""
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -259,3 +260,174 @@ def test_carrying_a_result_forward_updates_the_exported_configuration():
     assert model_config["name"] == "m1"  # the higher pass rate
     assert model_config["provider"] == "openai"
     assert any("will default to" in success.value for success in app.success)
+
+
+def _next_button(app):
+    return [button for button in app.button if button.label.startswith("Next")][0]
+
+
+def _action_button(app, label):
+    return [button for button in app.button if button.label == label][0]
+
+
+def test_prompt_edits_survive_a_click_that_leaves_the_step():
+    """Typing must reach the workspace even when a button click ends the step.
+
+    Streamlit commits a text area on blur, so clicking a button while the box
+    still holds focus races that blur and the edit used to be dropped
+    (streamlit/streamlit#8725). Queueing both interactions into one run is the
+    closest AppTest gets to that race; the keyed widgets and their on_change
+    callbacks are what make the text land in app_config either way.
+    """
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("Only answer from the uploaded cases.")
+    _next_button(app).click()
+    app.run()
+
+    assert not app.exception
+    assert app.header[0].value != "Write a prompt", "the Next click was swallowed"
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert profiles[0]["prompt"] == "Only answer from the uploaded cases."
+
+
+def test_conversation_starters_survive_a_click_that_leaves_the_step():
+    app = run_app("2. Prompt")
+    app.text_area("prompt_starters_0").set_value("What is a continuance?\n\nCan I appeal?")
+    _next_button(app).click()
+    app.run()
+
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert profiles[0]["conversation_starters"] == [
+        "What is a continuance?",
+        "Can I appeal?",
+    ]
+
+
+def test_the_export_step_edits_the_prompt_instead_of_overwriting_it():
+    """Export repeats the prompt fields, so it must not restore stale text."""
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("Cite the statute section.").run()
+    app.sidebar.radio[0].set_value("5. Export").run()
+
+    assert app.text_area("export_prompt_0").value == "Cite the statute section."
+
+    app.text_area("export_prompt_0").set_value("Cite the statute and the year.").run()
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert profiles[0]["prompt"] == "Cite the statute and the year."
+
+
+def test_switching_prompts_does_not_carry_text_between_them():
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("First prompt text.").run()
+    _action_button(app, "Add another prompt").click().run()
+    app.selectbox("prompt_editor_index").set_value(1).run()
+    app.text_area("prompt_text_1").set_value("Second prompt text.").run()
+    app.selectbox("prompt_editor_index").set_value(0).run()
+
+    assert app.text_area("prompt_text_0").value == "First prompt text."
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert [profile["prompt"] for profile in profiles] == [
+        "First prompt text.",
+        "Second prompt text.",
+    ]
+
+
+def test_removing_a_prompt_leaves_the_survivor_showing_its_own_text():
+    """Editor keys are index-based, so a removal has to reset them.
+
+    Dropping the first of two profiles shifts the second into index 0. Without
+    clearing the keyed widgets, index 0 kept the removed prompt's text on
+    screen and the next blur wrote it over the survivor.
+    """
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("Doomed prompt.").run()
+    _action_button(app, "Add another prompt").click().run()
+    app.selectbox("prompt_editor_index").set_value(1).run()
+    app.text_area("prompt_text_1").set_value("Surviving prompt.").run()
+
+    app.selectbox("prompt_editor_index").set_value(0).run()
+    _action_button(app, "Remove this prompt").click().run()
+
+    assert not app.exception
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert [profile["prompt"] for profile in profiles] == ["Surviving prompt."]
+    assert app.text_area("prompt_text_0").value == "Surviving prompt."
+
+
+def test_a_prompt_typed_in_the_editor_reaches_the_deployed_yaml(tmp_path):
+    """Reproduce the classroom report: the exported YAML kept the stock prompt.
+
+    A student typed a system prompt, could not press the Ctrl/Cmd+Enter the
+    caption asked for, and moved on. The keyless text area dropped the edit, so
+    app_config still held DEFAULT_PROMPT_TEXT — which then flowed into the
+    evaluation and into prompts/*.yml, and the exported app shipped with
+    "You are a helpful assistant."
+    """
+    import yaml
+    from asklit.db import init_db
+    from asklit.scaffold import bundle as bundle_module
+    from asklit.scaffold.config import DEFAULT_PROMPT_TEXT
+
+    student_prompt = (
+        "You are a Massachusetts housing advisor. Answer only from the "
+        "retrieved passages and say so when they are silent."
+    )
+
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value(student_prompt)
+    _next_button(app).click()
+    app.run()
+
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert profiles[0]["prompt"] == student_prompt, "the editor dropped the prompt"
+    assert profiles[0]["prompt"] != DEFAULT_PROMPT_TEXT
+
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    init_db(str(session_dir / "app.sqlite3"))
+    bundle_dir = Path(
+        bundle_module.create_bundle(
+            app.session_state["app_config"], str(session_dir)
+        )
+    )
+
+    exported = yaml.safe_load(
+        (bundle_dir / "prompts" / f"{profiles[0]['key']}.yml").read_text()
+    )
+    assert exported["prompt"] == student_prompt
+
+
+def test_the_save_button_commits_the_prompt_on_its_own():
+    """The button must store the text without relying on a blur first.
+
+    This is the affordance for a learner who cannot press Ctrl/Cmd+Enter, so
+    it re-reads the fields rather than trusting that on_change already fired.
+    """
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("Answer only from the record.")
+    _action_button(app, "Save prompt").click()
+    app.run()
+
+    assert not app.exception
+    profiles = app.session_state["app_config"]["prompt_profiles"]
+    assert profiles[0]["prompt"] == "Answer only from the record."
+    assert any("Prompt saved." in success.value for success in app.success)
+
+
+@pytest.mark.parametrize("step_label", ["4. Evaluate", "5. Export"])
+def test_an_unwritten_prompt_is_called_out_before_it_costs_anything(step_label):
+    """A prompt left at the stock text used to sail silently into both steps."""
+    app = run_app(step_label)
+
+    assert any(
+        "stock prompt" in warning.value for warning in app.warning
+    ), f"{step_label} did not flag the default prompt"
+
+
+@pytest.mark.parametrize("step_label", ["4. Evaluate", "5. Export"])
+def test_a_written_prompt_is_not_flagged(step_label):
+    app = run_app("2. Prompt")
+    app.text_area("prompt_text_0").set_value("Answer only from the record.").run()
+    app.sidebar.radio[0].set_value(step_label).run()
+
+    assert not any("stock prompt" in warning.value for warning in app.warning)

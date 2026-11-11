@@ -22,6 +22,7 @@ from .access import (
 )
 from .security import digest, reserve_calls, token
 from .speech import voice_policy, add_public_speech_routes
+from .usage import meter
 from .uploads import (MAX_BYTES, MAX_CHARS, MAX_FILES, convert_upload, filename_for, reserve_upload, upload_metadata)
 
 
@@ -66,8 +67,10 @@ def public_router(settings, store, runtime):
             require_access(db, bot, raw, settings)
         except HTTPException:
             locked = True
+        organization = db.get(Organization, bot.org_id)
         common = {
             "id": bot.id,
+            "organization": {"name": organization.name, "slug": organization.slug},
             "access_mode": bot.access_mode,
             "locked": locked,
             "url": settings.base_url + public_path(db, bot),
@@ -310,7 +313,8 @@ def public_router(settings, store, runtime):
             profile = conversation.profile
         try:
             extra = {"attachments": [{"filename": a.filename, "text": a.text} for a in attachments]} if attachments else {}
-            result = runtime.answer(config, docs, body.message, profile, history, **extra)
+            with meter(store, bot, "public_chat"):
+                result = runtime.answer(config, docs, body.message, profile, history, **extra)
         except Exception:
             with store.transaction() as db:
                 conv = db.scalar(

@@ -22,12 +22,23 @@ fly deploy --config fly.hosted.toml --remote-only --ha=false
 ```
 
 Required secrets are `ASKLIT_DATABASE_URL`, `ASKLIT_SECRET_KEY`, `SUPABASE_URL`,
-`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, and `ASKLIT_MODELS_JSON`.
-The model preset JSON uses direct OpenAI with no Azure endpoint override. Keep
-preset keys stable because saved AskLits reference them. The `tiny` preset uses
-`gpt-5.4-nano`; `gpt-4.1-mini` and `gpt-4.1` remain available presets.
+`SUPABASE_SERVICE_ROLE_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`ASKLIT_MODELS_JSON`. The deployed model presets use Amazon Bedrock in Suffolk
+AWS account `132950722695` (local operator profile `suffolk`, never `lemmalegal`).
+The runtime IAM user `asklit-bedrock-production` can only invoke the selected
+models and their US inference profiles. No IAM administration, S3, or billing
+permissions are granted to the running service. Rotate its access key through
+IAM and update Fly secrets and private environment files together.
+
+[Bedrock presets](bedrock-models.json) include Nova Lite, Nova Micro, Claude Haiku
+4.5, and Meta Llama 3.1 8B. `tiny` uses Nova Micro with a 128-token output limit.
+Legacy `gpt-4.1-mini`/`gpt-4.1` preset keys remain compatibility aliases to Bedrock
+models; they no longer call OpenAI. Existing saved configurations are preserved.
+The OpenAI key copied from ALWeaver has been removed from AskLit environments
+and Fly. Paid speech is unavailable until a separately configured, metered
+provider is added; browser speech remains available.
 Optional speech settings are described in [the hosted guide](hosted-deployment.md#voice).
-Paid speech still requires an organization administrator's explicit opt-in.
+Paid speech requires an organization administrator's explicit opt-in and configured service credentials.
 
 Production disables local development credentials. Configure one or both OAuth
 providers using `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and
@@ -133,3 +144,46 @@ OAuth app and completing any requested Google branding review are separate
 steps; the app remains restricted to its test users until the console status
 is changed. The policy pages describe the deployed service, not independently
 hosted copies. Review them with the lab before publishing the OAuth app broadly.
+
+## Hosting approval, fees, and monitoring
+
+Production sets `ASKLIT_REQUIRE_AUTHOR_APPROVAL=true`. New OAuth identities and
+administrator-created local accounts cannot author until a service operator
+approves them. Sign-in, password changes, and organization-restricted public chat
+remain available. The approval page explains that hosting on suffolklitlab.org
+requires a small cost-recovery fee and directs requests to `litlab@suffolk.edu`.
+Fees and allowances are agreed separately: this release does not automatically
+charge users or provide a payment processor.
+
+The existing local lab administrator has service-operator access. From Studio,
+open **Service administration** to approve or suspend accounts and review service
+usage. Organization owners/admins use **Workspace → Members & settings → Usage &
+cost** for their own organization. Neither organization ownership nor creating a
+local account grants approval authority. Grant another trusted service operator
+explicitly with `python -m asklit.hosted set-operator --user-id USER_ID` using the
+production database environment; email matching does not merge identities.
+Suspension unpublishes the author's assistants and prevents new model calls;
+requests already admitted may finish. Reapproval does not automatically republish.
+
+The usage ledger stores one row before each model attempt, including public chat,
+preview, scenario generation, evaluation answers, and evaluation judges. It stores
+organization, AskLit, author at the time of use, model, purpose, status, reported
+input/output tokens, latency, and the price snapshot used to estimate USD cost.
+It does not store prompts or answers. Interrupted/failed calls without usage have
+unknown cost, not zero cost. Existing transcripts cannot be used to reconstruct
+past provider charges; metering starts with this release. Archived assistants
+retain usage history. Model-call counts exclude non-model HTTP requests and local
+embedding/conversion work. Existing organization and service daily call limits
+remain enforced across workers.
+
+Rates were checked against the AWS Price List API on 2026-11-11, using
+`AmazonBedrock` and `AmazonBedrockFoundationModels` for us-east-1 on-demand input
+and output tokens. Claude uses the US/geo rate ($1.10/$5.50 per million), not the
+lower global rate. Other rates are in the preset JSON. Review prices when changing
+models. No prompt caching is requested; reported cache use leaves cost unknown
+until its pricing is supported. Estimates exclude infrastructure, taxes, discounts,
+and billing adjustments. Reconcile with Suffolk AWS billing before invoicing.
+
+Public chat pages show the backend's organization name, immutable AskLit ID,
+AI-error notice, sensitive-information warning, and report link. Organization
+names are supplied by publishers; they are not identity-verification badges.

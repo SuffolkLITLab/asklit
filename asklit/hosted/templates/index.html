@@ -6,12 +6,13 @@
   <script src="/static/voice.js" defer></script><script src="/static/voice-ui.js" defer></script><script src="/static/studio.js" defer></script>
 </head>
 <body>
-<header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><span id="identity"></span><button id="change-password" class="quiet" hidden>Change password</button><button id="logout" class="quiet" hidden>Sign out</button></header>
+<header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><button id="operator" class="quiet" hidden>Service administration</button><span id="identity"></span><button id="change-password" class="quiet" hidden>Change password</button><button id="logout" class="quiet" hidden>Sign out</button></header>
 <main>
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="login" hidden class="sign-in">
     <h1>Sign in to AskLit</h1>
     <p>Create, manage, and publish AI assistants with your own knowledge bases. Sign in to save your work and collaborate within your organization.</p>
+    <p>Hosted author accounts require approval and a small fee to recover hosting and AI usage costs. <a href="mailto:litlab@suffolk.edu?subject=AskLit%20hosting%20approval">Request approval</a>.</p>
     <p class="muted">By using AskLit, you agree to the <a href="/terms">terms of service</a>. Read our <a href="/privacy">privacy policy</a>.</p>
     <div class="actions">{% if google %}<a class="button" href="/auth/google/login">Continue with Google</a>{% endif %}
     {% if microsoft %}<a class="button secondary" href="/auth/microsoft/login">Continue with Microsoft</a>{% endif %}</div>
@@ -33,6 +34,8 @@
     </form>
     {% endif %}
   </section>
+  <section id="approval" hidden class="sign-in"><h1>Hosting approval required</h1><p>Hosting an AskLit on suffolklitlab.org requires approval and a small fee to recover hosting and AI usage costs.</p><p>Email <a href="mailto:litlab@suffolk.edu?subject=AskLit%20hosting%20approval">litlab@suffolk.edu</a> with your account email and what you plan to host. We’ll discuss the fee and usage allowance before enabling authoring.</p><button id="check-approval" class="secondary">Check approval status</button></section>
+  <section id="service-admin" hidden><button class="quiet back">← Your AskLits</button><h1>Service administration</h1><h2>Hosting approvals</h2><div id="approval-accounts"></div><div class="actions"><button id="accounts-prev" class="secondary">Previous</button><button id="accounts-next" class="secondary">Next</button></div><h2>Service usage</h2><label>Period<select id="operator-usage-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="refresh-operator-usage" class="secondary">Refresh usage</button><div id="operator-usage"></div></section>
   <section id="dashboard" hidden>
     <div class="heading"><h1>Your AskLits</h1><button id="new-bot">New AskLit</button></div>
     <div class="toolbar workspace-bar"><label class="sr-only" for="org">Organization</label><select id="org"></select>
@@ -55,6 +58,7 @@
       <p class="muted">A spoken exchange usually uses two speech requests, plus a normal model answer.</p>
       <button id="save-organization-sharing">Save organization settings</button>
     </details>
+    <details class="panel"><summary>Usage &amp; cost</summary><p>Model calls and estimated AI cost for this organization over the last 30 days.</p><button id="refresh-org-usage" class="secondary">Refresh usage</button><div id="org-usage"></div></details>
     <div class="panel"><h2>Members</h2><div id="members"></div></div>
     <div id="local-accounts-panel" class="panel"><div class="heading"><h2>Local accounts</h2><button id="new-local-account">Create account</button></div><div id="local-accounts"></div></div>
     <details class="panel"><summary>Invite someone</summary>

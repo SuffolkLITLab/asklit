@@ -8,6 +8,7 @@ snapshots. A bounded corpus prevents unbounded per-request scans.
 import math
 import os
 import re
+import time
 from functools import lru_cache
 
 from fastapi import HTTPException
@@ -124,44 +125,76 @@ class Runtime:
         return [row[1] for row in ranked[:top_k]]
 
     def call(self, messages, preset):
+        from .usage import begin_call, finish_call
         model = self.settings.models.get(preset)
         if not model:
             raise RuntimeError("The published model preset is no longer available.")
-        if self.completion:
-            return self.completion(messages, preset)
-        import litellm
+        handle = begin_call(self.settings, preset, model)
+        started = time.perf_counter()
+        usage = None
+        try:
+            if self.completion:
+                answer = self.completion(messages, preset)
+            elif model.get("provider") == "bedrock":
+                answer, usage = self.bedrock(messages, model)
+            else:
+                answer, usage = self.litellm(messages, model)
+            if not answer:
+                raise RuntimeError("The model returned no answer.")
+        except Exception:
+            finish_call(handle, "failed", usage, time.perf_counter() - started)
+            raise
+        finish_call(handle, "succeeded", usage, time.perf_counter() - started)
+        return answer
 
+    def bedrock(self, messages, model):
+        import boto3
+        from botocore.config import Config
+        # IAM credentials are supplied by the operator, never by an author.
+        client = boto3.session.Session().client("bedrock-runtime", region_name=model.get("region", "us-east-1"),
+            config=Config(connect_timeout=10, read_timeout=90, retries={"total_max_attempts": 1}))
+        system = [{"text": m["content"]} for m in messages if m["role"] == "system" and m["content"].strip()]
+        turns = []
+        for message in messages:
+            if message["role"] == "system" or not message["content"].strip(): continue
+            if not turns and message["role"] == "assistant": continue
+            content = {"text": message["content"]}
+            if turns and turns[-1]["role"] == message["role"]:
+                turns[-1]["content"].append(content)
+            else:
+                turns.append({"role": message["role"], "content": [content]})
+        kwargs = {"modelId": model["model"], "messages": turns,
+                  "inferenceConfig": {"maxTokens": min(int(model.get("max_tokens", 1500)), 4000)}}
+        if system: kwargs["system"] = system
+        result = client.converse(**kwargs)
+        answer = "".join(block.get("text", "") for block in result["output"]["message"]["content"])
+        measured = result.get("usage", {})
+        return answer, {"input_tokens": measured.get("inputTokens"), "output_tokens": measured.get("outputTokens"),
+                        "cached_tokens": measured.get("cacheReadInputTokens", 0) + measured.get("cacheWriteInputTokens", 0)}
+
+    def litellm(self, messages, model):
+        import litellm
         provider = model.get("provider", "openai")
-        if provider == "google":
-            provider = "gemini"
+        if provider == "google": provider = "gemini"
         model_name = model["model"]
         if provider == "azure_apim" or (provider == "openai" and model.get("base_url")):
-            model_name = (
-                model_name
-                if model_name.startswith("openai/")
-                else f"openai/{model_name}"
-            )
+            model_name = model_name if model_name.startswith("openai/") else f"openai/{model_name}"
         elif provider != "openai" and not model_name.startswith(provider + "/"):
             model_name = provider + "/" + model_name
         api_key = os.environ.get(model.get("api_key_env", "OPENAI_API_KEY"))
         if not api_key:
             raise RuntimeError("The operator has not configured this model's API key.")
-        kwargs = dict(
-            model=model_name,
-            messages=messages,
-            api_key=api_key,
-            api_base=model.get("base_url"),
-            stream=False,
-            max_tokens=min(int(model.get("max_tokens", 1500)), 4000),
-            timeout=90,
-            num_retries=0,
-        )
-        if provider == "azure_apim":
-            kwargs["extra_headers"] = {"Ocp-Apim-Subscription-Key": api_key}
-        text = response_text(litellm.completion(**kwargs))
-        if not text:
-            raise RuntimeError("The model returned no answer.")
-        return text
+        kwargs = dict(model=model_name, messages=messages, api_key=api_key,
+            api_base=model.get("base_url"), stream=False,
+            max_tokens=min(int(model.get("max_tokens", 1500)), 4000), timeout=90, num_retries=0)
+        if provider == "azure_apim": kwargs["extra_headers"] = {"Ocp-Apim-Subscription-Key": api_key}
+        result = litellm.completion(**kwargs)
+        measured = getattr(result, "usage", None)
+        details = getattr(measured, "prompt_tokens_details", None)
+        usage = {"input_tokens": getattr(measured, "prompt_tokens", None),
+                 "output_tokens": getattr(measured, "completion_tokens", None),
+                 "cached_tokens": getattr(details, "cached_tokens", 0)}
+        return response_text(result), usage
 
     def answer(self, config, docs, question, profile_key, history=None, attachments=None):
         profile = profile_for(config, profile_key)

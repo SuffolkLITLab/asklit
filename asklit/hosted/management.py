@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
+from .usage import meter
 from .storage import object_store
 from .speech import add_preview_speech_routes
 from .access import ensure_links, public_path
@@ -113,6 +114,24 @@ def enqueue(db, bot, kind, payload):
     db.add(job)
     db.flush()
     return {"id": job.id, "status": job.status}
+
+
+def approved_owner(db, settings, user_id):
+    if not settings.require_author_approval: return
+    owner = db.scalar(select(User).where(User.id == user_id).with_for_update(read=True))
+    if not owner or not owner.author_approved:
+        raise HTTPException(403, "The author needs hosting approval.")
+
+
+def publication_bot(db, settings, bot_id, user_id):
+    snapshot = accessible_bot(db, bot_id, user_id)
+    owner_id = snapshot.owner_id
+    # Same lock order as suspension: owner, then bot.
+    approved_owner(db, settings, owner_id)
+    bot = accessible_bot(db, bot_id, user_id, True)
+    if bot.owner_id != owner_id:
+        raise HTTPException(409, "The owner changed. Reload and try again.")
+    return bot
 
 
 def management_router(settings, store, runtime):
@@ -337,6 +356,7 @@ def management_router(settings, store, runtime):
     def transfer_bot(bot_id: str, body: Transfer, request: Request):
         with store.transaction() as db:
             session = login_session(db, request, True)
+            approved_owner(db, settings, body.owner_id)
             bot = accessible_bot(db, bot_id, session.user_id, True)
             membership(db, bot.org_id, session.user_id, True)
             membership(db, bot.org_id, body.owner_id)
@@ -483,7 +503,7 @@ def management_router(settings, store, runtime):
     def publish(bot_id: str, body: Version, request: Request):
         with store.transaction() as db:
             session = login_session(db, request, True)
-            bot = accessible_bot(db, bot_id, session.user_id, True)
+            bot = publication_bot(db, settings, bot_id, session.user_id)
             check_version(bot, body.version)
             validate_config(bot.draft, settings)
             docs = ready_documents(db, bot)
@@ -530,7 +550,7 @@ def management_router(settings, store, runtime):
     def rollback(bot_id: str, revision_id: str, request: Request):
         with store.transaction() as db:
             session = login_session(db, request, True)
-            bot = accessible_bot(db, bot_id, session.user_id, True)
+            bot = publication_bot(db, settings, bot_id, session.user_id)
             revision = db.get(Revision, revision_id)
             if not revision or revision.bot_id != bot.id:
                 raise HTTPException(404)
@@ -577,10 +597,11 @@ def management_router(settings, store, runtime):
             reserve_calls(db, bot.org_id, settings)
             config = bot.draft
         try:
-            return runtime.answer(
-                config, docs, body.message, body.profile, body.history,
-                attachments=[a.model_dump() for a in body.attachments],
-            )
+            with meter(store, bot, "preview"):
+                return runtime.answer(
+                    config, docs, body.message, body.profile, body.history,
+                    attachments=[a.model_dump() for a in body.attachments],
+                )
         except HTTPException:
             raise
         except Exception:
@@ -648,9 +669,10 @@ def management_router(settings, store, runtime):
             reserve_calls(db, bot.org_id, settings)
             audit(db, session.user_id, bot.org_id, "scenarios.generate", bot.id)
         try:
-            return {
-                "scenarios": generate(runtime, docs, profile, body.model, body.count)
-            }
+            with meter(store, bot, "scenario_generation"):
+                return {"scenarios": generate(runtime, docs, profile, body.model, body.count)}
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(
                 502,

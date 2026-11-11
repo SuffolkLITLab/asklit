@@ -2,6 +2,7 @@ streamlit==1.59.2
 chromadb
 protobuf==3.20.3
 litellm
+boto3>=1.40,<2
 sentence-transformers
 torch
 python-dotenv

@@ -262,7 +262,12 @@ def run_one(store, settings, runtime, job=None):
                             )
                         )
 
-                result = evaluate(job, docs, runtime, progress)
+                from .usage import meter
+                from .models import Bot
+                with store.transaction() as db:
+                    usage_bot = db.get(Bot, job.bot_id)
+                with meter(store, usage_bot, "evaluation"):
+                    result = evaluate(job, docs, runtime, progress)
             elif job.kind == "export":
                 from .portability import build_export
 

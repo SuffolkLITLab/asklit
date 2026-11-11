@@ -1,0 +1,74 @@
+{
+  "nova-lite": {
+    "label": "Amazon Nova Lite",
+    "provider": "bedrock",
+    "model": "us.amazon.nova-lite-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 0.06,
+    "output_usd_per_million": 0.24,
+    "pricing_checked": "2026-11-11"
+  },
+  "nova-micro": {
+    "label": "Amazon Nova Micro",
+    "provider": "bedrock",
+    "model": "us.amazon.nova-micro-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 0.035,
+    "output_usd_per_million": 0.14,
+    "pricing_checked": "2026-11-11"
+  },
+  "claude-haiku": {
+    "label": "Claude Haiku 4.5",
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 1.1,
+    "output_usd_per_million": 5.5,
+    "pricing_checked": "2026-11-11"
+  },
+  "llama-8b": {
+    "label": "Meta Llama 3.1 8B",
+    "provider": "bedrock",
+    "model": "us.meta.llama3-1-8b-instruct-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 0.22,
+    "output_usd_per_million": 0.22,
+    "pricing_checked": "2026-11-11"
+  },
+  "tiny": {
+    "label": "Nova Micro \u2014 small test",
+    "provider": "bedrock",
+    "model": "us.amazon.nova-micro-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 128,
+    "input_usd_per_million": 0.035,
+    "output_usd_per_million": 0.14,
+    "pricing_checked": "2026-11-11"
+  },
+  "gpt-4.1-mini": {
+    "label": "Amazon Nova Lite",
+    "provider": "bedrock",
+    "model": "us.amazon.nova-lite-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 0.06,
+    "output_usd_per_million": 0.24,
+    "pricing_checked": "2026-11-11",
+    "hidden": true
+  },
+  "gpt-4.1": {
+    "label": "Claude Haiku 4.5",
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 1.1,
+    "output_usd_per_million": 5.5,
+    "pricing_checked": "2026-11-11",
+    "hidden": true
+  }
+}

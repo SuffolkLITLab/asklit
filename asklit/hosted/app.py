@@ -137,6 +137,8 @@ def create_app(settings=None, store=None, runtime=None):
         response.headers["Cache-Control"] = "no-store"
         return response
 
+    from .usage import usage_router
+    app.include_router(usage_router(settings, store))
     app.include_router(auth_router(settings, store))
     app.include_router(local_account_router(settings, store))
     app.include_router(management_router(settings, store, runtime))

@@ -126,6 +126,7 @@ def bootstrap_admin(store, email, name, org_name, slug, password):
         db.add(org); db.flush()
         db.add(OrganizationAlias(org_id=org.id, slug=slug))
         user = new_local_user(db, org.id, email, name, password_hash(password), "owner")
+        user.author_approved = True
         db.get(LocalAccount, user.id).must_change_password = False
         audit(db, user.id, org.id, "local.bootstrap", user.id)
         return user.id, org.id

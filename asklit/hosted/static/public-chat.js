@@ -43,6 +43,9 @@ function showMetadata(data) {
   metadata = data;
   $("chat-title").textContent = data.title;
   document.title = data.title + " · AskLit";
+  $("chat-publisher").textContent = "Organization: " + data.organization.name;
+  $("chat-identifier").textContent = "AskLit ID: " + data.id;
+  $("chat-report").href = "mailto:litlab@suffolk.edu?subject=" + encodeURIComponent("Report AskLit " + data.id);
   $("chat-status").textContent = "";
   $("unlock").hidden = !(data.locked && data.access_mode === "password");
   $("org-unlock").hidden = !(

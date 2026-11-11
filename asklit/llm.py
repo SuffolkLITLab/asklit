@@ -2,7 +2,7 @@ import threading
 
 import litellm
 
-from asklit.config import get_api_key, get_base_url, get_setting
+from asklit.config import get_api_key, get_base_url, get_setting, get_secret_value
 from asklit.observability import logger, safe_error_message
 
 
@@ -130,7 +130,10 @@ def call_llm(
 
     # Routing logic
     # If the user specifically selects 'azure' as provider, use azure/ prefix
-    if provider == "azure":
+    if provider == "bedrock":
+        if not model.startswith("bedrock/"):
+            model = f"bedrock/{model}"
+    elif provider == "azure":
         if not model.startswith("azure/"):
             model = f"azure/{model}"
         # Strip path for Azure SDK logic
@@ -156,6 +159,14 @@ def call_llm(
         "api_base": base_url,
         "stream": stream,
     }
+
+    if provider == "bedrock":
+        # Exported standalone apps use their operator's own AWS credentials.
+        completion_kwargs.pop("api_key", None)
+        completion_kwargs.pop("api_base", None)
+        for name in ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_REGION_NAME"]:
+            value = get_secret_value(name, None)
+            if value: completion_kwargs[name.lower()] = value
 
     if temp_to_pass is not None:
         completion_kwargs["temperature"] = temp_to_pass

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from .models import Audit, Bot, LocalAccount, LoginSession, Membership, Organization, RateBucket
+from .models import Audit, Bot, LocalAccount, LoginSession, Membership, Organization, RateBucket, User
 
 
 def digest(value):
@@ -29,6 +29,13 @@ def login_session(db, request, mutation=False):
         raise HTTPException(401, "Please sign in.")
     if local and local.must_change_password and request.url.path not in {"/api/me", "/api/logout", "/api/account/password"}:
         raise HTTPException(403, "Change your password before continuing.")
+    settings = request.app.state.settings
+    path = request.url.path
+    author_routes = path.startswith("/api/") and path not in {"/api/me", "/api/logout", "/api/account/password", "/api/gallery"} and not path.startswith(("/api/public/", "/api/gallery/"))
+    if settings.require_author_approval and author_routes:
+        user = db.get(User, session.user_id)
+        if not user or not user.author_approved:
+            raise HTTPException(403, "Hosting approval is required. Email litlab@suffolk.edu to request approval and discuss the hosting fee.")
     if mutation and not secrets.compare_digest(
         request.headers.get("x-csrf-token", "").encode(), session.csrf.encode()
     ):
@@ -47,7 +54,7 @@ def accessible_bot(db, bot_id, user_id, lock=False):
     stmt = select(Bot).where(Bot.id == bot_id, Bot.archived.is_(False))
     if lock:
         stmt = stmt.with_for_update()
-    bot = db.scalar(stmt)
+    bot = db.scalar(stmt.execution_options(populate_existing=lock))
     if not bot:
         raise HTTPException(404, "Bot not found.")
     member = membership(db, bot.org_id, user_id)

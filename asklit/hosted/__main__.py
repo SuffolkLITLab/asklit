@@ -10,6 +10,8 @@ def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init-db")
+    operator = commands.add_parser("set-operator")
+    operator.add_argument("--user-id", required=True)
     enable = commands.add_parser("enable-local-accounts")
     enable.add_argument("--organization-id", required=True)
     admin = commands.add_parser("create-local-admin")
@@ -22,6 +24,15 @@ def main():
     if args.command == "init-db":
         command.upgrade(Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")), "head")
         print("Hosted database migrated to the latest schema.")
+    elif args.command == "set-operator":
+        from .models import Store, User
+        from .settings import Settings
+        with Store(Settings.from_env().database_url).transaction() as db:
+            user = db.get(User, args.user_id)
+            if not user: parser.error("Account not found.")
+            user.platform_admin = True
+            user.author_approved = True
+        print("Account granted service operator access and hosting approval.")
     elif args.command == "enable-local-accounts":
         from .models import Store, Organization
         from .settings import Settings

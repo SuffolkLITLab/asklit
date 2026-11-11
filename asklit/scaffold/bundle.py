@@ -188,6 +188,13 @@ def generate_deployment_secrets(config_data, password_hashes=None):
         "# Replace every PASTE_... value in Streamlit. Never add this file to GitHub.",
         f'{provider.upper()}_API_KEY = "PASTE_YOUR_KEY_HERE"',
     ]
+    if provider == "bedrock":
+        lines = lines[:2] + [
+            '# Use credentials for your own AWS account, or an instance/task role.',
+            'AWS_ACCESS_KEY_ID = "PASTE_YOUR_AWS_ACCESS_KEY_ID"',
+            'AWS_SECRET_ACCESS_KEY = "PASTE_YOUR_AWS_SECRET_ACCESS_KEY"',
+            'AWS_REGION_NAME = "us-east-1"',
+        ]
     if provider == "openai" and config_data["model"].get("base_url"):
         lines.append(
             f"OPENAI_BASE_URL = {toml_quote(config_data['model']['base_url'])}"

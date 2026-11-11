@@ -337,3 +337,19 @@ def test_discovered_models_are_usable_when_no_allowlist_is_configured(monkeypatc
         assert "not enabled" in str(exc)
     else:
         raise AssertionError("A model the endpoint never offered must fail closed")
+
+
+def test_bedrock_export_routes_with_aws_credentials_not_api_key(monkeypatch):
+    settings={'model.name':'us.amazon.nova-micro-v1:0','model.provider':'bedrock'}
+    captured={}
+    monkeypatch.setattr(llm,'get_setting',lambda key,default=None:settings.get(key,default))
+    monkeypatch.setattr(llm,'get_api_key',lambda provider:'unused-key')
+    monkeypatch.setattr(llm,'get_base_url',lambda provider:'https://unused.invalid')
+    monkeypatch.setattr(llm,'get_secret_value',lambda key,default=None:{'AWS_ACCESS_KEY_ID':'test-access','AWS_SECRET_ACCESS_KEY':'test-secret','AWS_REGION_NAME':'us-east-1'}.get(key,default))
+    def completion(**kwargs):captured.update(kwargs);return 'ok'
+    monkeypatch.setattr(llm.litellm,'completion',completion,raising=False)
+    assert llm.call_llm([{'role':'user','content':'Hello'}],stream=False)=='ok'
+    assert captured['model']=='bedrock/us.amazon.nova-micro-v1:0'
+    assert captured['aws_access_key_id']=='test-access'
+    assert captured['aws_region_name']=='us-east-1'
+    assert 'api_key' not in captured and 'api_base' not in captured

@@ -247,11 +247,13 @@ def auth_router(settings, store):
                 "email": user.email,
                 "csrf": session.csrf,
                 "local_account": local is not None,
+                "author_approved": user.author_approved or not settings.require_author_approval,
+                "platform_admin": user.platform_admin,
                 "must_change_password": bool(local and local.must_change_password),
                 "organizations": [
                     {"id": o.id, "name": o.name, "role": m.role, "local_accounts_enabled": o.local_accounts_enabled} for o, m in orgs
                 ],
-                "models": list(settings.models),
+                "models": [key for key, model in settings.models.items() if not model.get("hidden", False)],
                 "model_labels": {
                     key: preset.get("label", preset["model"])
                     for key, preset in settings.models.items()

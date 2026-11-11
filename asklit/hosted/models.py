@@ -24,6 +24,28 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
     email: Mapped[str] = mapped_column(String(320))
     name: Mapped[str] = mapped_column(String(200))
+    author_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class UsageEvent(Base):
+    """One durable record per provider attempt; no prompts or answers."""
+    __tablename__ = "hosted_usage_events"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
+    created: Mapped[float] = mapped_column(Float, default=time.time, index=True)
+    org_id: Mapped[str] = mapped_column(ForeignKey("hosted_organizations.id"), index=True)
+    bot_id: Mapped[str] = mapped_column(ForeignKey("hosted_bots.id"), index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("hosted_users.id"), index=True)
+    purpose: Mapped[str] = mapped_column(String(40))
+    preset: Mapped[str] = mapped_column(String(100))
+    model: Mapped[str] = mapped_column(String(300))
+    status: Mapped[str] = mapped_column(String(20), default="started")
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    output_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Identity(Base):

@@ -673,3 +673,11 @@ footer img {
 .legal-page h2 { margin-top: 2rem; }
 .legal-page p { line-height: 1.65; }
 footer nav { margin-top: 1rem; font-size: .875rem; }
+
+.usage-table { overflow-x: auto; }
+.usage-table table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.usage-table th, .usage-table td { padding: .6rem; text-align: left; border-bottom: 1px solid #ddd; }
+
+.publisher-notice { border-left: 3px solid #ffbd00; padding-left: 1rem; margin: 1rem 0 1.5rem; font-size: .9rem; }
+.publisher-notice p { margin: .4rem 0; }
+.publisher-notice summary { font-weight: normal; }

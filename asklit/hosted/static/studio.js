@@ -90,7 +90,7 @@ function show(section) {
   if (section !== "editor") previewVoice.stop();
   notice("");
   document.querySelectorAll(".menu").forEach((menu) => (menu.open = false));
-  for (const id of ["login", "dashboard", "organization", "editor"])
+  for (const id of ["login", "approval", "service-admin", "dashboard", "organization", "editor"])
     $(id).hidden = id !== section;
 }
 function markDirty() {
@@ -243,9 +243,11 @@ async function dashboard() {
   clearInterval(polling);
   bot = null;
   dirty = false;
+  if (!me.author_approved) { show("approval"); return; }
   show("dashboard");
   const bots = await api("/bots");
   const org = $("org").value;
+  $("org-usage").replaceChildren();
   $("bots").replaceChildren();
   for (const b of bots.filter((b) => b.org_id === org)) {
     const card = action("", () => openBot(b.id), "card");
@@ -263,6 +265,7 @@ async function dashboard() {
 async function refreshMe() {
   const selected = $("org").value;
   me = await api("/me");
+  $("operator").hidden = !me.platform_admin;
   $("change-password").hidden = !me.local_account;
   $("new-org").hidden = me.local_account;
   $("identity").textContent = me.name;
@@ -271,6 +274,11 @@ async function refreshMe() {
   me.organizations.forEach((o) => option($("org"), o.id, o.name));
   if (me.organizations.some((o) => o.id === selected))
     $("org").value = selected;
+}
+function availableModels() {
+  const e = bot?.config?.evaluation || {};
+  return [...new Set([...me.models, bot?.config?.model_preset, ...(e.models || []), e.judge_model])]
+    .filter(key => key && (me.models.includes(key) || me.model_labels?.[key]));
 }
 async function openBot(id) {
   if (dirty && !confirm("Leave this draft without saving your changes?"))
@@ -296,7 +304,7 @@ async function openBot(id) {
   for (const id of ["title", "description", "welcome", "footer"])
     $(id).value = bot.config[id] || "";
   $("model").replaceChildren();
-  me.models.forEach((m) => option($("model"), m, m));
+  availableModels().forEach((m) => option($("model"), m, me.model_labels?.[m] || m));
   $("model").value = bot.config.model_preset;
   $("top-k").value = bot.config.top_k;
   $("uploads-enabled").checked = !!bot.config.uploads_enabled;
@@ -800,7 +808,7 @@ function renderEvaluationOptions() {
     [
       "evaluation-models",
       "models",
-      me.models.map((m) => [m, me.model_labels?.[m] || m]),
+      availableModels().map((m) => [m, me.model_labels?.[m] || m]),
     ],
   ]) {
     let selected = (e[field] || []).filter((key) =>
@@ -828,11 +836,11 @@ function renderEvaluationOptions() {
   for (const id of ["evaluation-judge", "generation-model"]) {
     const previous = $(id).value;
     $(id).replaceChildren();
-    me.models.forEach((m) => option($(id), m, me.model_labels?.[m] || m));
+    availableModels().forEach((m) => option($(id), m, me.model_labels?.[m] || m));
     $(id).value =
       id === "evaluation-judge"
         ? e.judge_model || bot.config.model_preset
-        : me.models.includes(previous)
+        : availableModels().includes(previous)
           ? previous
           : bot.config.model_preset;
   }
@@ -1431,6 +1439,7 @@ async function init() {
   try {
     await refreshMe();
     if (me.must_change_password) { show("dashboard"); accountDialog("own"); return; }
+    if (!me.author_approved) { show("approval"); return; }
     const invite = sessionStorage.getItem("asklit-invite");
     if (invite) {
       if (confirm("Join the organization using this invitation?")) {
@@ -1582,3 +1591,46 @@ function renderLocalAccounts(accounts, orgId) {
 }
 
 $("local-account-dialog").addEventListener("cancel", event => { if (me?.must_change_password) event.preventDefault(); });
+
+let accountPage = 1;
+function renderUsage(target, report) {
+  target.replaceChildren();
+  const t = report.totals;
+  target.append(el("p", `${t.requests.toLocaleString()} model calls · ${t.succeeded.toLocaleString()} succeeded · ${t.failed.toLocaleString()} failed · ${t.unfinished.toLocaleString()} unfinished`));
+  target.append(el("p", `${t.input_tokens.toLocaleString()} input tokens · ${t.output_tokens.toLocaleString()} output tokens · $${t.estimated_cost_usd.toFixed(6)} estimated AI cost`));
+  if (t.unknown_cost_requests) target.append(el("p", `${t.unknown_cost_requests.toLocaleString()} calls have unknown cost; the total is incomplete.`));
+  target.append(el("p", report.note, "muted"));
+  const table = el("table");
+  const head = el("tr");
+  for (const name of ["Organization / AskLit", "Model / activity", "Calls", "Estimated USD", "Unknown cost"]) head.append(el("th", name));
+  const thead=el("thead");thead.append(head);table.append(thead);
+  const body=el("tbody");
+  for (const r of report.rows) {
+    const row=el("tr");
+    for (const value of [`${r.organization} / ${r.asklit}`, `${r.model} / ${r.purpose}`, r.requests, `$${r.estimated_cost_usd.toFixed(6)}`, r.unknown_cost_requests]) row.append(el("td", String(value)));
+    body.append(row);
+  }
+  table.append(body);const wrap=el("div",undefined,"usage-table");wrap.append(table);target.append(wrap);
+}
+async function operatorUsage() { renderUsage($("operator-usage"), await api(`/operator/usage?days=${$("operator-usage-days").value}`)); }
+async function approvalAccounts() {
+  const data=await api(`/operator/accounts?page=${accountPage}`);
+  $("approval-accounts").replaceChildren();
+  for (const user of data.accounts) {
+    const row=el("div",undefined,"row");
+    row.append(el("span", `${user.name} · ${user.email} · ${user.id} · ${user.approved ? "Approved" : "Pending approval"}`));
+    if (!user.operator) row.append(action(user.approved ? "Suspend hosting" : "Approve hosting", async () => {
+      await api(`/operator/accounts/${user.id}`,"PATCH",{approved:!user.approved});
+      await approvalAccounts();
+    }));
+    $("approval-accounts").append(row);
+  }
+  $("accounts-prev").disabled=accountPage===1;
+  $("accounts-next").disabled=!data.has_more;
+}
+bind("operator", async () => { show("service-admin");await approvalAccounts();await operatorUsage(); });
+bind("accounts-prev", async () => { accountPage=Math.max(1,accountPage-1);await approvalAccounts(); });
+bind("accounts-next", async () => { accountPage++;await approvalAccounts(); });
+bind("refresh-operator-usage", operatorUsage);
+bind("refresh-org-usage", async () => renderUsage($("org-usage"),await api(`/organizations/${$("org").value}/usage?days=30`)));
+bind("check-approval", async () => { await refreshMe();await dashboard(); });

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ 'Privacy policy' if page == 'privacy' else 'Terms of service' }} · AskLit</title><link rel="icon" href="/static/brand/favicon.svg"><link rel="stylesheet" href="/static/studio.css"></head>
+<body><header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit</span></a><a href="/" class="quiet button">Studio</a></header>
+<main class="legal-page"><article>
+{% if page == 'privacy' %}
+<h1>Privacy policy</h1><p class="muted">Updated November 11, 2026</p>
+<p>This notice describes the hosted AskLit service operated by the Legal Innovation &amp; Technology Lab at Suffolk University Law School. AskLit lets people create, manage, publish, and use AI assistants. Other websites and independently hosted copies may have different policies.</p>
+<h2>Information we receive</h2>
+<p>When you sign in with Google, we receive your account identifier, name, email address, verification status, and, when supplied, Google Workspace domain. We use this information to sign you in and apply organization access rules. AskLit requests only basic identity scopes (openid, email, and profile); it does not request access to your Gmail, Drive files, or contacts. Microsoft sign-in, when configured, similarly uses identity and tenant information.</p>
+<p>For local accounts, we store your name, email used as a username, organization membership, and a salted password hash. We also store AskLit configurations, knowledge-base files and extracted text, published revisions, evaluation inputs and results, and administrative activity records.</p>
+<p>During a conversation, we process and store messages, responses, and extracted text from attachments. Service providers also process connection information such as IP addresses. AskLit uses security and usage counters to limit abuse and costs.</p>
+<h2>How information is used and shared</h2>
+<p>We use information to operate accounts, enforce access controls, retrieve relevant knowledge-base content, generate answers, evaluate assistants, and maintain the service. AI requests send conversation content, relevant knowledge-base excerpts, instructions, and attachment text to the configured model provider. This deployment currently uses OpenAI. Do not submit information you are not authorized to share with the service and its providers.</p>
+<p>Fly.io hosts the application. Supabase provides database and private file storage. Cloudflare provides the domain's DNS. Google processes Google sign-in. These providers process information needed to supply their services under their own terms and privacy policies.</p>
+<p>Organization administrators can manage their organization's AskLits and memberships. Published assistants may disclose information drawn from their knowledge bases in answers. Public listings and public assistant links are accessible to anyone; an unlisted link is not an access restriction. Password and organization restrictions limit access but do not make an AI conversation a confidential legal consultation. Service operators can access stored information as needed for operation, support, and security.</p>
+<h2>Voice</h2>
+<p>Browser speech features may send audio or text to your browser or operating-system provider; processing is not necessarily confined to your device. If an organization enables paid speech, recordings are sent to the configured transcription provider and reply text to the speech provider (currently OpenAI). AskLit does not persist these audio recordings as account files. Transcribed text becomes part of the conversation when sent.</p>
+<h2>Cookies and browser storage</h2>
+<p>AskLit uses cookies for sign-in sessions and OAuth security, and browser storage for conversation access and interface preferences. These are used to operate the service. The Studio does not include advertising or analytics trackers. An embedding website may use its own cookies and analytics.</p>
+<h2>Retention and deletion</h2>
+<p>Hosted conversations expire {{ retention_days }} days after creation and are removed by background housekeeping. Clearing a conversation through the chat controls deletes its stored conversation record and related messages and attachments. Account information, assistant configurations, knowledge-base documents, revisions, evaluations, and administrative records do not all share that automatic expiration. Archiving an assistant is not the same as deleting its stored data.</p>
+<p>Contact <a href="mailto:litlab@suffolk.edu">litlab@suffolk.edu</a> to request access, correction, or deletion of your information. We may need to verify your identity and coordinate with your organization. Backup copies and provider records may persist under their separate retention processes; information may also need to be retained for security or legal reasons. Removing AskLit's access in your Google account prevents future Google authorization but does not delete existing AskLit records.</p>
+<h2>Contact and changes</h2>
+<p>Questions about this notice can be sent to <a href="mailto:litlab@suffolk.edu">litlab@suffolk.edu</a>. Changes will be posted here with an updated date. See also the <a href="https://suffolklitlab.org/terms/">Suffolk LIT Lab website policy</a>.</p>
+{% else %}
+<h1>Terms of service</h1><p class="muted">Updated November 11, 2026</p>
+<p>These terms apply to the hosted AskLit service operated by the Legal Innovation &amp; Technology Lab at Suffolk University Law School. By using the service, you agree to these terms and acknowledge the <a href="/privacy">privacy policy</a>.</p>
+<h2>Using AskLit</h2>
+<p>AskLit provides tools to create and use AI assistants. You are responsible for your account credentials, the content you submit, and the assistants you publish. Use only materials you have permission to upload and share. Respect other people's privacy and intellectual property. Do not use the service for unlawful activity, to bypass access controls, to distribute malicious files, or to disrupt the service.</p>
+<h2>AI answers and legal information</h2>
+<p>AI answers can be incorrect, incomplete, or out of date, including when they cite sources. Check important information against reliable sources before relying on it. AskLit does not provide legal representation, create an attorney-client relationship, or guarantee confidentiality or legal privilege. Using an assistant does not file a document with a court or meet a deadline. Consult a qualified professional when needed.</p>
+<h2>Your content and publishing</h2>
+<p>You retain any rights you have in your submitted content. You authorize the service and its providers to process, store, and display that content as needed to provide the features you use, including sending relevant content to AI providers. You are responsible for choosing appropriate access settings and reviewing an assistant's instructions, knowledge bases, and behavior before publishing. Public and unlisted assistants can be accessed by people outside your organization; shared passwords can be passed on by recipients.</p>
+<h2>Organizations and availability</h2>
+<p>Organization administrators manage membership, assistants, and optional paid features within their organization. Usage limits apply. We may restrict or suspend access to address abuse, security issues, excessive usage, or violations of these terms. Features may change or become unavailable. Keep copies of material you need; do not rely on this service as your only storage.</p>
+<h2>No guarantee</h2>
+<p>The service is provided as available, without a promise that it will be uninterrupted, error-free, or suitable for a particular purpose. Nothing in these terms excludes rights or responsibilities that applicable law does not allow to be excluded.</p>
+<h2>Contact and changes</h2>
+<p>For support, concerns about content, or questions about these terms, contact <a href="mailto:litlab@suffolk.edu">litlab@suffolk.edu</a>. Changes to these terms will be posted here with an updated date.</p>
+{% endif %}
+</article></main>
+{% include 'legal_footer.html' %}
+</body></html>

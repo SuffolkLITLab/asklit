@@ -11,6 +11,8 @@
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="login" hidden class="sign-in">
     <h1>Sign in to AskLit</h1>
+    <p>Create, manage, and publish AI assistants with your own knowledge bases. Sign in to save your work and collaborate within your organization.</p>
+    <p class="muted">By using AskLit, you agree to the <a href="/terms">terms of service</a>. Read our <a href="/privacy">privacy policy</a>.</p>
     <div class="actions">{% if google %}<a class="button" href="/auth/google/login">Continue with Google</a>{% endif %}
     {% if microsoft %}<a class="button secondary" href="/auth/microsoft/login">Continue with Microsoft</a>{% endif %}</div>
     {% if dev_mode %}
@@ -178,5 +180,5 @@
     <div class="actions dialog-actions"><button id="name-cancel" type="button" class="secondary">Cancel</button><button id="name-submit" type="submit">Create AskLit</button></div>
   </form>
 </dialog>
-<footer><img src="/static/brand/lit-lab-full.svg" alt="Legal Innovation & Technology Lab, Suffolk University Law School"></footer>
+{% include 'legal_footer.html' %}
 </body></html>

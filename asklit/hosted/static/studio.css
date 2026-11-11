@@ -668,3 +668,8 @@ footer img {
 .voice-panel details { margin-top: .65rem; }
 .voice-panel details label { max-width: 30rem; }
 .voice-notice { font-size: .8rem; margin: .5rem 0; }
+
+.legal-page { max-width: 48rem; }
+.legal-page h2 { margin-top: 2rem; }
+.legal-page p { line-height: 1.65; }
+footer nav { margin-top: 1rem; font-size: .875rem; }

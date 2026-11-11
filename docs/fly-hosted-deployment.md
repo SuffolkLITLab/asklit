@@ -2,7 +2,7 @@
 
 The hosted service is separate from the Streamlit app in `fly.toml`.
 
-- Studio and FastAPI: https://asklit-studio.fly.dev
+- Studio and FastAPI: https://asklit.suffolklitlab.org
 - Static CourtFormsOnline/AskLit frontend: https://asklit-chat.fly.dev/asklit
 - Fly organization: `suffolk-lit-lab`
 - Supabase project: `asklit-prod` (`ydmubnmfjdiroigycbro`, US East 1)
@@ -34,8 +34,8 @@ providers using `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and
 `MICROSOFT_CLIENT_ID`/`MICROSOFT_CLIENT_SECRET`. Register these exact callbacks:
 
 ```text
-https://asklit-studio.fly.dev/auth/google/callback
-https://asklit-studio.fly.dev/auth/microsoft/callback
+https://asklit.suffolklitlab.org/auth/google/callback
+https://asklit.suffolklitlab.org/auth/microsoft/callback
 ```
 
 The Next.js frontend lives in the sibling `courtformsonline.org` repository.
@@ -105,3 +105,31 @@ Google Cloud project `suffolk-asklit` is owned by the lab's Google account.
 OAuth client creation/consent configuration is independent of Fly and Supabase.
 Project IAM can grant teammates `roles/oauthconfig.editor` to manage OAuth
 settings using their own Google identities.
+
+## Primary domain and Google branding
+
+Cloudflare DNS points `asklit.suffolklitlab.org` to
+`z223kml.asklit-studio.fly.dev` using an unproxied CNAME. Fly manages HTTPS.
+Keep this record DNS-only: the client-IP trust boundary currently ends at Fly.
+The old Fly hostname redirects browser navigation to the primary hostname;
+health checks and existing API clients remain available at the old hostname.
+The static frontend is built against the primary API address.
+
+In Google Auth Platform for project `suffolk-asklit`, edit the AskLit Studio
+web client and add `https://asklit.suffolklitlab.org/auth/google/callback`
+to Authorized redirect URIs. Keep the old Fly callback during transition.
+No JavaScript origin is required for this server-side OAuth flow.
+
+Set Branding application links to:
+
+- Home page: `https://asklit.suffolklitlab.org/`
+- Privacy policy: `https://asklit.suffolklitlab.org/privacy`
+- Terms of service: `https://asklit.suffolklitlab.org/terms`
+- Authorized domain: `suffolklitlab.org` (without scheme or subdomain)
+
+If Google asks for domain ownership verification, verify the parent domain
+through Google Search Console with its supplied DNS TXT record. Publishing the
+OAuth app and completing any requested Google branding review are separate
+steps; the app remains restricted to its test users until the console status
+is changed. The policy pages describe the deployed service, not independently
+hosted copies. Review them with the lab before publishing the OAuth app broadly.

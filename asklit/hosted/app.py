@@ -2,10 +2,11 @@
 
 from pathlib import Path
 from ipaddress import ip_address
+from urllib.parse import urlsplit
 from .security import token
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.cors import CORSMiddleware
@@ -112,6 +113,20 @@ def create_app(settings=None, store=None, runtime=None):
 
     @app.middleware("http")
     async def headers(request: Request, call_next):
+        # Start browser sessions on the canonical origin, so OAuth state and
+        # callback cookies share a host. Preserve old API clients and Fly health checks.
+        if (
+            settings.trust_fly_proxy
+            and request.url.hostname == "asklit-studio.fly.dev"
+            and urlsplit(settings.base_url).hostname != "asklit-studio.fly.dev"
+            and request.method in {"GET", "HEAD"}
+            and request.url.path != "/health"
+            and not request.url.path.startswith(("/api/", "/static/"))
+        ):
+            target = settings.base_url.rstrip("/") + request.url.path
+            if request.url.query:
+                target += "?" + request.url.query
+            return RedirectResponse(target, status_code=307)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -129,6 +144,19 @@ def create_app(settings=None, store=None, runtime=None):
     app.include_router(sharing_router(settings, store))
     app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
     templates = Jinja2Templates(directory=ROOT / "templates")
+
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy(request: Request):
+        return templates.TemplateResponse(
+            request=request, name="legal.html",
+            context={"page": "privacy", "retention_days": settings.retention_days},
+        )
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms(request: Request):
+        return templates.TemplateResponse(
+            request=request, name="legal.html", context={"page": "terms"},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request):

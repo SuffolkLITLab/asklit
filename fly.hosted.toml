@@ -9,7 +9,7 @@ primary_region = "iad"
   release_command_timeout = "5m"
 
 [env]
-  ASKLIT_BASE_URL = "https://asklit-studio.fly.dev"
+  ASKLIT_BASE_URL = "https://asklit.suffolklitlab.org"
   ASKLIT_CORS_ORIGINS = "https://asklit-chat.fly.dev,https://courtformsonline.org,https://www.courtformsonline.org"
   ASKLIT_DEV_MODE = "false"
   ASKLIT_TRUST_FLY_PROXY = "true"

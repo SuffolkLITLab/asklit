@@ -396,3 +396,26 @@ def test_author_edits_only_suffix_and_cannot_change_organization(hosted):
         f"/api/bots/{bot['id']}/sharing",
         json={"slug": "school/new-guide", "access_mode": "public"},
     ).status_code == 422
+
+
+def test_default_slug_uses_title_and_preserves_links(hosted):
+    c = hosted[4]("alice")
+    def create(title):
+        response = c.post("/api/bots", json={"org_id": "school", "title": title})
+        assert response.status_code == 200, response.text
+        bot = response.json()
+        sharing = c.get(f"/api/bots/{bot['id']}/sharing").json()
+        return bot, sharing["slug"]
+
+    bot, slug = create("Café Housing / Help?!")
+    assert slug == "cafe-housing-help"
+    assert create("Café Housing / Help?!")[1] == "cafe-housing-help-2"
+    bot["config"]["title"] = "Changed display name"
+    assert c.put(f"/api/bots/{bot['id']}", json={"version": bot["version"], "config": bot["config"]}).status_code == 200
+    assert c.get(f"/api/bots/{bot['id']}/sharing").json()["slug"] == slug
+    assert c.delete(f"/api/bots/{bot['id']}").status_code == 200
+    assert create("Café Housing / Help?!")[1] == "cafe-housing-help-3"
+    assert create("你好 !!!")[1] == "asklit"
+    assert create("A")[1] == "asklit-a"
+    assert len(create("a" * 200)[1]) == 80
+    assert create("a" * 200)[1] == "a" * 78 + "-2"

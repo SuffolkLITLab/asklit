@@ -5,6 +5,7 @@ import hmac
 import secrets
 import re
 import time
+import unicodedata
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
@@ -51,12 +52,21 @@ def ensure_links(db, bot):
         if not alias:
             db.add(OrganizationAlias(slug=org.slug, org_id=org.id))
     if not bot.slug:
-        bot.slug = "asklit-" + bot.id
-        alias = db.get(BotAlias, (org.id, bot.slug))
-        if alias and alias.bot_id != bot.id:
-            raise HTTPException(409, "Choose another AskLit link.")
-        if not alias:
-            db.add(BotAlias(org_id=org.id, slug=bot.slug, bot_id=bot.id))
+        name = unicodedata.normalize("NFKD", bot.title).encode("ascii", "ignore").decode()
+        base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:80].rstrip("-")
+        if len(base) < 2:
+            base = "asklit" if not base else "asklit-" + base
+        # Keep legacy identifier URLs reserved; aliases are never recycled.
+        if re.fullmatch(r"asklit-[a-f0-9]{32}", base):
+            base = "guide-" + base
+        base = base[:80].rstrip("-")
+        candidate, number = base, 1
+        while db.get(BotAlias, (org.id, candidate)):
+            number += 1
+            suffix = "-" + str(number)
+            candidate = base[:80 - len(suffix)].rstrip("-") + suffix
+        bot.slug = candidate
+        db.add(BotAlias(org_id=org.id, slug=bot.slug, bot_id=bot.id))
     db.flush()
     return org
 

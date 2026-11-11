@@ -291,6 +291,7 @@ def management_router(settings, store, runtime):
             )
             db.add(bot)
             db.flush()
+            ensure_links(db, bot)
             audit(db, session.user_id, bot.org_id, "bot.create", bot.id)
             return bot_view(bot)
 

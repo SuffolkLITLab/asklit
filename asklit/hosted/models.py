@@ -271,3 +271,12 @@ class Store:
     def transaction(self):
         with self.sessions.begin() as session:
             yield session
+
+
+class LocalAccount(Base):
+    __tablename__ = "hosted_local_accounts"
+    user_id: Mapped[str] = mapped_column(ForeignKey("hosted_users.id"), primary_key=True)
+    username: Mapped[str] = mapped_column(String(320), unique=True)
+    managed_org_id: Mapped[str] = mapped_column(ForeignKey("hosted_organizations.id"), index=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)

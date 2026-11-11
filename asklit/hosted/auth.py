@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from .models import Identity, LoginSession, Membership, Organization, OrganizationAlias, User
+from .models import LocalAccount, Identity, LoginSession, Membership, Organization, OrganizationAlias, User
 from .security import digest, login_session, token
 from .access import safe_next
 
@@ -245,6 +245,7 @@ def auth_router(settings, store):
                 "name": user.name,
                 "email": user.email,
                 "csrf": session.csrf,
+                "local_account": db.get(LocalAccount, user.id) is not None,
                 "organizations": [
                     {"id": o.id, "name": o.name, "role": m.role} for o, m in orgs
                 ],

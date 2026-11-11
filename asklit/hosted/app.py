@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from .local_accounts import local_account_router
 from .auth import auth_router
 from .access import safe_next
 from .management import management_router
@@ -100,6 +101,7 @@ def create_app(settings=None, store=None, runtime=None):
         return response
 
     app.include_router(auth_router(settings, store))
+    app.include_router(local_account_router(settings, store))
     app.include_router(management_router(settings, store, runtime))
     app.include_router(public_router(settings, store, runtime))
     app.include_router(sharing_router(settings, store))
@@ -110,8 +112,7 @@ def create_app(settings=None, store=None, runtime=None):
     def dashboard(request: Request):
         if request.query_params.get("next"):
             request.session["after_login"] = safe_next(request.query_params["next"])
-        if settings.dev_mode:
-            request.session["local_login_csrf"] = token()
+        request.session["local_login_csrf"] = token()
         return templates.TemplateResponse(
             request=request,
             name="index.html",

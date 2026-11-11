@@ -22,6 +22,7 @@ from .models import (
     Identity,
     Job,
     Membership,
+    LocalAccount,
     Organization,
     Revision,
     User,
@@ -210,6 +211,9 @@ def management_router(settings, store, runtime):
             if caller.role != "owner":
                 raise HTTPException(403, "Only organization owners can change roles.")
             target = membership(db, org_id, user_id)
+            local = db.scalar(select(LocalAccount).where(LocalAccount.user_id == user_id).with_for_update())
+            if body.role == "owner" and local and not local.enabled:
+                raise HTTPException(409, "Enable the local account before making it an owner.")
             owners = db.scalar(
                 select(func.count())
                 .select_from(Membership)

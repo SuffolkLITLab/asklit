@@ -6,7 +6,7 @@
   <script src="/static/voice.js" defer></script><script src="/static/voice-ui.js" defer></script><script src="/static/studio.js" defer></script>
 </head>
 <body>
-<header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><span id="identity"></span><button id="logout" class="quiet" hidden>Sign out</button></header>
+<header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><span id="identity"></span><button id="change-password" class="quiet" hidden>Change password</button><button id="logout" class="quiet" hidden>Sign out</button></header>
 <main>
   <div id="notice" role="status" aria-live="polite"></div>
   <section id="login" hidden class="sign-in">
@@ -21,8 +21,15 @@
       <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
       <button type="submit">Sign in locally</button>
     </form>
+    {% else %}
+    <form action="/auth/password/login" method="post">
+      <input type="hidden" name="csrf" value="{{ local_login_csrf }}">
+      {% if login_error %}<p role="alert">Incorrect email or password.</p>{% endif %}
+      <label>Email<input name="email" type="email" autocomplete="username" maxlength="320" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" maxlength="200" required></label>
+      <button type="submit">Sign in</button>
+    </form>
     {% endif %}
-    {% if not google and not microsoft and not dev_mode %}<p>Ask your administrator to enable sign-in.</p>{% endif %}
   </section>
   <section id="dashboard" hidden>
     <div class="heading"><h1>Your AskLits</h1><button id="new-bot">New AskLit</button></div>
@@ -47,6 +54,7 @@
       <button id="save-organization-sharing">Save organization settings</button>
     </details>
     <div class="panel"><h2>Members</h2><div id="members"></div></div>
+    <div class="panel"><div class="heading"><h2>Local accounts</h2><button id="new-local-account">Create account</button></div><div id="local-accounts"></div></div>
     <details class="panel"><summary>Invite someone</summary>
       <label>Role <select id="invite-role"><option value="member">Member — own AskLits</option><option value="admin">Administrator — all AskLits</option></select></label>
       <button id="invite">Create invitation link</button><output id="invite-link"></output><p class="muted">One use. Expires in seven days.</p></details>
@@ -151,6 +159,15 @@
     <details id="task-panel" class="task-panel" hidden><summary id="task-summary">Activity</summary><div id="jobs"></div></details>
   </section>
 </main>
+<dialog id="local-account-dialog"><form id="local-account-form">
+  <h2 id="local-account-title">Create account</h2>
+  <div id="local-account-details"><label>Name<input id="local-account-name" maxlength="200" autocomplete="off"></label><label>Email<input id="local-account-email" type="email" maxlength="320" autocomplete="off"></label><label>Role<select id="local-account-role"><option value="member">Member</option><option value="admin">Administrator</option></select></label></div>
+  <label id="local-current-label" hidden>Current password<input id="local-current-password" type="password" maxlength="200" autocomplete="current-password"></label>
+  <label>New password<input id="local-new-password" type="password" minlength="12" maxlength="200" autocomplete="new-password" required></label>
+  <p id="local-account-help" class="muted"></p>
+  <p id="local-account-error" role="alert"></p>
+  <div class="actions"><button id="local-account-submit">Save</button><button id="local-account-cancel" type="button" class="quiet">Cancel</button></div>
+</form></dialog>
 <dialog id="name-dialog" aria-labelledby="name-dialog-title">
   <form id="name-form">
     <h2 id="name-dialog-title">New AskLit</h2>

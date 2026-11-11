@@ -1,6 +1,6 @@
-"""Schema initialization is an explicit deployment step, never an API side effect."""
-
+"""Explicit operator commands; no public bootstrap or migration endpoints."""
 import argparse
+import getpass
 from pathlib import Path
 from alembic import command
 from alembic.config import Config
@@ -8,11 +8,28 @@ from alembic.config import Config
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["init-db"])
-    parser.parse_args()
-    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-    command.upgrade(config, "head")
-    print("Hosted database migrated to the latest schema.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("init-db")
+    admin = commands.add_parser("create-local-admin")
+    admin.add_argument("--email", required=True)
+    admin.add_argument("--name", required=True)
+    admin.add_argument("--organization", required=True)
+    admin.add_argument("--slug", default="lit")
+    admin.add_argument("--password-file", type=Path)
+    args = parser.parse_args()
+    if args.command == "init-db":
+        command.upgrade(Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")), "head")
+        print("Hosted database migrated to the latest schema.")
+    else:
+        from .models import Store
+        from .settings import Settings
+        from .local_accounts import bootstrap_admin
+        password = args.password_file.read_text().rstrip("\r\n") if args.password_file else getpass.getpass("Initial password: ")
+        try:
+            bootstrap_admin(Store(Settings.from_env().database_url), args.email, args.name, args.organization, args.slug, password)
+        except ValueError as error:
+            parser.error(str(error))
+        print("Local owner created. Sign in with the supplied email and password.")
 
 
 if __name__ == "__main__":

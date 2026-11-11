@@ -263,6 +263,7 @@ async function dashboard() {
 async function refreshMe() {
   const selected = $("org").value;
   me = await api("/me");
+  $("change-password").hidden = !me.local_account;
   $("identity").textContent = me.name;
   $("logout").hidden = false;
   $("org").replaceChildren();
@@ -1352,12 +1353,14 @@ async function organization() {
   $("invite-role").querySelector("[value=admin]").disabled =
     org.role !== "owner";
   $("invite-link").textContent = "";
-  const [members, audit, organizationSharing] = await Promise.all([
+  const [members, audit, organizationSharing, localAccounts] = await Promise.all([
     api(`/organizations/${id}/members`),
     api(`/organizations/${id}/audit`),
     api(`/organizations/${id}/sharing`),
+    api(`/organizations/${id}/local-accounts`),
   ]);
   renderOrgSharing(organizationSharing);
+  renderLocalAccounts(localAccounts, id);
   $("members").replaceChildren();
   for (const member of members) {
     const row = el("div", undefined, "row");
@@ -1516,3 +1519,60 @@ const previewVoice = mountVoicePanel("preview", {
   synthesize: text => api(`/bots/${bot.id}/preview/speech`, "POST", { text }, true),
   onError: text => notice(text, true),
 });
+
+let localAccountMode = "create", localAccountTarget = "";
+function accountDialog(mode, target = "") {
+  localAccountMode = mode; localAccountTarget = target;
+  $("local-account-form").reset();
+  $("local-account-title").textContent = mode === "create" ? "Create local account" : mode === "own" ? "Change password" : "Reset password";
+  $("local-account-details").hidden = mode !== "create";
+  $("local-account-name").required = $("local-account-email").required = mode === "create";
+  $("local-current-label").hidden = mode !== "own";
+  $("local-current-password").required = mode === "own";
+  $("local-account-role").querySelector('[value="admin"]').disabled = me.organizations.find(o => o.id === $("org").value)?.role !== "owner";
+  $("local-account-error").textContent = "";
+  $("local-account-help").textContent = mode === "own" ? "At least 12 characters. You will sign in again after saving." : "At least 12 characters. Share the credentials with this person directly.";
+  $("local-account-dialog").showModal();
+}
+$("new-local-account").onclick = () => accountDialog("create");
+$("change-password").onclick = () => accountDialog("own");
+$("local-account-cancel").onclick = () => $("local-account-dialog").close();
+$("local-account-dialog").addEventListener("close", () => $("local-account-form").reset());
+$("local-account-form").onsubmit = async event => {
+  event.preventDefault();
+  const submit = $("local-account-submit"); submit.disabled = true;
+  try {
+    const password = $("local-new-password").value;
+    const base = `/organizations/${$("org").value}/local-accounts`;
+    if (localAccountMode === "create") await api(base, "POST", {
+      email: $("local-account-email").value, name: $("local-account-name").value,
+      password, role: $("local-account-role").value,
+    });
+    else if (localAccountMode === "own") {
+      await api("/account/password", "POST", { password, current_password: $("local-current-password").value });
+      location.assign("/"); return;
+    } else await api(`${base}/${localAccountTarget}/password`, "POST", { password });
+    $("local-account-dialog").close();
+    await organization();
+    notice(localAccountMode === "create" ? "Account created." : "Password reset. Existing sessions have been signed out.");
+  } catch (error) { $("local-account-error").textContent = error.message; }
+  finally { submit.disabled = false; }
+};
+function renderLocalAccounts(accounts, orgId) {
+  const container = $("local-accounts"); container.replaceChildren();
+  if (!accounts.length) container.append(el("p", "No local accounts in this organization.", "muted"));
+  for (const account of accounts) {
+    const row = el("div", undefined, "row");
+    const label = el("div", undefined, "grow");
+    label.append(el("strong", account.name), el("div", account.email, "muted"));
+    row.append(label, el("span", account.enabled ? "Active" : "Disabled", "muted"));
+    if (account.id !== me.id) row.append(
+      action("Reset password", () => accountDialog("reset", account.id)),
+      action(account.enabled ? "Disable" : "Enable", async () => {
+        await api(`/organizations/${orgId}/local-accounts/${account.id}`, "PATCH", { enabled: !account.enabled });
+        await organization();
+      }),
+    );
+    container.append(row);
+  }
+}

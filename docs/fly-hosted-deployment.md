@@ -55,3 +55,34 @@ Creating a new published bot does not require rebuilding the frontend.
 This deployment creates a fresh hosted database. Local development data and
 credentials are not copied into production. Existing CourtFormsOnline DNS and
 the separate Streamlit deployment are unaffected.
+
+## Local accounts
+
+Production also supports email-and-password accounts without OAuth. Organization
+administrators create them under **Workspace → Members & settings → Local accounts**.
+They can reset passwords and disable access. Owners assign roles using the member
+controls. Disabling an account or changing its password revokes its sessions.
+Accounts that own an organization must transfer/demote that ownership before
+being disabled; the last-owner safeguards still apply. A person can change their
+own password from the Studio header, then sign in again.
+
+Passwords require 12–200 characters and are stored using salted scrypt hashes.
+Login attempts are limited per address and client IP using shared database
+counters. Local email addresses are usernames, not verified OAuth identities;
+matching email text never merges a local account with a Google/Microsoft account.
+Explicit organization membership admits local accounts to that organization's
+restricted bots, but merely typing an allowed email domain does not.
+
+Bootstrap the first local owner with the operator CLI after running migrations:
+
+```sh
+python -m asklit.hosted create-local-admin \
+  --email ADMIN_EMAIL --name 'Lab administrator' \
+  --organization 'Suffolk LIT Lab' --slug lit
+```
+
+The command prompts for a password. For automation, `--password-file` accepts a
+private file; do not put passwords in shell arguments. It refuses to overwrite
+an existing account or organization link. There is no public signup or password
+recovery endpoint: an administrator resets lost passwords. A CLI session must
+have the production database environment to bootstrap production.

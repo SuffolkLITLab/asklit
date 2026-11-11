@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from .models import Audit, Bot, LoginSession, Membership, Organization, RateBucket
+from .models import Audit, Bot, LocalAccount, LoginSession, Membership, Organization, RateBucket
 
 
 def digest(value):
@@ -23,6 +23,9 @@ def login_session(db, request, mutation=False):
     value = request.cookies.get("asklit_session", "")
     session = db.get(LoginSession, digest(value))
     if not session or session.expires <= time.time():
+        raise HTTPException(401, "Please sign in.")
+    local = db.get(LocalAccount, session.user_id)
+    if local and not local.enabled:
         raise HTTPException(401, "Please sign in.")
     if mutation and not secrets.compare_digest(
         request.headers.get("x-csrf-token", ""), session.csrf

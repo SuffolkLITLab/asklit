@@ -508,7 +508,7 @@ footer img {
   align-items: center;
 }
 
-#name-dialog {
+:is(#name-dialog, #local-account-dialog) {
   width: min(440px, calc(100vw - 2rem));
   padding: 2rem;
   border: 1px solid var(--line);
@@ -517,14 +517,14 @@ footer img {
   background: #fff;
   box-shadow: 0 18px 60px #172a4726;
 }
-#name-dialog::backdrop {
+:is(#name-dialog, #local-account-dialog)::backdrop {
   background: #172a4766;
 }
-#name-dialog h2 {
+:is(#name-dialog, #local-account-dialog) h2 {
   font-size: 1.4rem;
   margin: 0 0 1.5rem;
 }
-#name-dialog label {
+:is(#name-dialog, #local-account-dialog) label {
   margin-bottom: 0.35rem;
 }
 .dialog-actions {
@@ -532,7 +532,7 @@ footer img {
   margin-top: 1.75rem;
 }
 @media (max-width: 600px) {
-  #name-dialog {
+  :is(#name-dialog, #local-account-dialog) {
     padding: 1.5rem;
   }
 }

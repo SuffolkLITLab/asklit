@@ -15,6 +15,7 @@ from .models import (
     BotAlias,
     Identity,
     LoginSession,
+    LocalAccount,
     Membership,
     Organization,
     OrganizationAlias,
@@ -84,7 +85,8 @@ def matches_organization(db, org, user_id, settings):
         if i.issuer == "https://accounts.google.com"
         or i.issuer.startswith("https://login.microsoftonline.com/")
     ]
-    if db.get(Membership, (org.id, user_id)) and (oauth or settings.dev_mode):
+    local = db.get(LocalAccount, user_id)
+    if db.get(Membership, (org.id, user_id)) and (oauth or settings.dev_mode or (local and local.enabled)):
         return True
     # Google's signed Workspace domain is authoritative; third-party email strings
     # are not. For Microsoft use signed tenant identity, never preferred_username.

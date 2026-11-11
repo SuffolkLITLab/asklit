@@ -359,9 +359,12 @@ def management_router(settings, store, runtime):
 
         if not re.fullmatch(r"[a-z0-9-]{1,100}", knowledgebase):
             raise HTTPException(422, "Invalid knowledge base name.")
-        from .uploads import filename_for
-        filename = filename_for(file.filename)
+        filename = Path((file.filename or "").replace("\\", "/")).name[:255]
         ext = Path(filename).suffix.lower()
+        if ext not in {".pdf", ".docx", ".txt", ".md", ".html", ".htm"}:
+            raise HTTPException(
+                422, "Upload PDF, DOCX, text, Markdown, or HTML documents."
+            )
         with store.transaction() as db:
             session = login_session(db, request, True)
             bot = accessible_bot(db, bot_id, session.user_id, True)
@@ -530,7 +533,7 @@ def management_router(settings, store, runtime):
             session = login_session(db, request, True)
             bot = accessible_bot(db, bot_id, session.user_id)
             if not bot.draft.get("uploads_enabled", False):
-                raise HTTPException(403, "Enable file uploads in Settings first.")
+                raise HTTPException(422, "Enable file uploads in Settings first.")
             reserve_upload(db, request, settings, bot.org_id, session.user_id)
         filename = filename_for(file.filename)
         value = convert_upload(file.file.read(MAX_BYTES + 1), filename)
@@ -538,7 +541,7 @@ def management_router(settings, store, runtime):
             session = login_session(db, request, True)
             bot = accessible_bot(db, bot_id, session.user_id)
             if not bot.draft.get("uploads_enabled", False):
-                raise HTTPException(403, "File uploads are disabled.")
+                raise HTTPException(422, "File uploads are disabled.")
         return {"filename": filename, "text": value["text"]}
 
     @router.post("/bots/{bot_id}/preview")

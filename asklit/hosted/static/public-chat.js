@@ -165,6 +165,10 @@ $("chat-send").onsubmit = async (event) => {
         "POST",
         { profile: $("chat-profile").value, access_token: accessToken },
       );
+    if (metadata.uploads?.enabled) {
+      attachments = await request(`/api/public/conversations/${session.id}/attachments`, "GET", undefined, session.token);
+      renderFiles();
+    }
     retry =
       retry?.message === question
         ? retry

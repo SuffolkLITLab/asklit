@@ -371,23 +371,25 @@ Conversion supports readable PDF text with pypdf; DOCX, PPTX, XLSX, and ODT with
 [pinned AnyDoc](https://github.com/firecrawl/anydoc); UTF-8 text, Markdown and CSV;
 and HTML text extraction. The AnyDoc dependency is **firecrawl-anydoc**, not the
 unrelated `anydoc` package. Its hosted OCR option is disabled. Scanned PDFs and
-images need OCR before upload. Encrypted files, macros, embedded Office objects,
+images need OCR before upload. Password-protected files, macros, embedded Office objects (including chart workbooks),
 oversized archives, and unsupported types are rejected. Office containers are
 limited to 1,000 entries and 25 MB expanded. Original chat files exist only in a
 temporary conversion directory and are removed after conversion.
 
-Converters run in separate Python processes with isolated imports, a clean
-environment, and Linux seccomp rules blocking sockets, process execution, and
-process inspection. This is resource/process hardening, not a separate VM or a
-complete filesystem sandbox. Docker installs `libseccomp2`; native Linux
-development also requires that library. Conversion fails closed if the kernel
-restrictions cannot be installed. No document conversion is delegated to a
+Converters run in separate Python processes with isolated imports and a clean
+environment. Linux Landlock restricts filesystem reads to Python libraries and
+the conversion’s own temporary directory, and writes to that temporary directory.
+Seccomp blocks sockets, process/thread creation, signals, execution, and process
+inspection. Docker installs `libseccomp2`; the host kernel must support Landlock
+ABI 3 (Linux 6.2 or later). Native Linux development has the same requirements.
+Conversion fails closed if the kernel restrictions cannot be installed. No document conversion is delegated to a
 cloud service. The model provider still receives the extracted text when answering.
 
 The `hosted_attachments` table uses the existing conversation retention and
 database cascade deletion. Migrations apply the same Supabase RLS and
 PostgREST-role restrictions as all other private hosted tables. No public Storage
-bucket is needed. Existing author source uploads use the same bounded converters,
-with their separate 10 MB, 200-page, two-million-character indexing limits.
+bucket is needed. Existing author source uploads keep their established
+conversion and indexing workflow; these new converters and limits apply to
+chat and Studio Preview attachments.
 Standalone Streamlit behavior is unchanged; chat attachments and their settings
 are features of the hosted chat and its static frontend.

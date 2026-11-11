@@ -53,12 +53,12 @@ def test_upload_is_private_context_with_author_prompt_and_cascades(hosted):
 
 def test_disabled_and_revision_pinning(hosted):
     bot, conv, headers = setup(hosted, enabled=False)
-    assert upload(hosted, conv, headers).status_code == 403
+    assert upload(hosted, conv, headers).status_code == 422
     bot["config"]["uploads_enabled"] = True
     saved = hosted[3].put(f"/api/bots/{bot['id']}", json={"version": bot["version"], "config": bot["config"]})
     assert saved.status_code == 200
     publish(hosted, saved.json())
-    assert upload(hosted, conv, headers).status_code == 403
+    assert upload(hosted, conv, headers).status_code == 422
     new = hosted[3].post(f"/api/public/bots/{bot['id']}/conversations", json={}).json()
     assert upload(hosted, new, {"Authorization": "Bearer " + new["token"]}).status_code == 200
 
@@ -209,3 +209,98 @@ def test_remove_refunds_text_budget_without_keeping_raw_bytes(hosted):
     base = f"/api/public/conversations/{conv['id']}/attachments"
     hosted[3].delete(base + "/" + result.json()["id"], headers=headers)
     assert upload(hosted, conv, headers, b"extra").status_code == 200
+
+
+def test_converter_cannot_read_host_secrets_or_open_sockets(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    from asklit.hosted import uploads
+    secret = tmp_path / "host-secret"
+    secret.write_text("must remain private")
+    work = tmp_path / "conversion"
+    work.mkdir()
+    (work / "input.txt").write_text("allowed input")
+    prefix = Path(uploads.__file__).with_name("conversion_worker.py").read_text().split("def convert(")[0]
+    probe = """
+results = {}
+for name, path in [("secret", SECRET_PATH), ("parent_env", "/proc/" + str(os.getppid()) + "/environ")]:
+    try:
+        Path(path).read_bytes()
+        results[name] = False
+    except PermissionError:
+        results[name] = True
+import socket
+try:
+    socket.socket()
+    results["network"] = False
+except (PermissionError, ValueError):
+    results["network"] = True
+try:
+    os.kill(os.getpid(), 0)
+    results["signals"] = False
+except PermissionError:
+    results["signals"] = True
+results["input"] = Path("input.txt").read_text() == "allowed input"
+print(json.dumps(results))
+""".replace("SECRET_PATH", repr(str(secret)))
+    result = subprocess.run([sys.executable, "-I", "-c", prefix + probe],
+                            cwd=work, env={"LANG": "C.UTF-8"}, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"secret": True, "parent_env": True, "network": True, "signals": True, "input": True}
+
+
+def test_rejects_utf16_xml_doctype_in_relationships():
+    dangerous = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE rel [<!ENTITY x SYSTEM "file:///etc/passwd">]><rel>&x;</rel>'
+    with pytest.raises(HTTPException) as exc:
+        convert_upload(docx({"word/_rels/document.xml.rels": dangerous.encode("utf-16")}), "notice.docx")
+    assert "XML document types" in exc.value.detail
+
+
+
+def test_static_upload_preflight_and_metadata(hosted):
+    bot, conv, _ = setup(hosted)
+    response = hosted[3].options(
+        f"/api/public/conversations/{conv['id']}/attachments",
+        headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization,content-type"},
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    metadata = hosted[3].get(f"/api/public/bots/{bot['id']}")
+    assert metadata.json()["uploads"]["enabled"]
+    assert "Identify deadlines" not in metadata.text
+
+
+def test_plain_html_and_unicode_filenames():
+    assert "Visible" in convert_upload(b'<p>Visible</p><script>hidden()</script>', 'notice.html')['text']
+    assert "hidden" not in convert_upload(b'<p>Visible</p><script>hidden()</script>', 'notice.html')['text']
+    from asklit.hosted.uploads import filename_for
+    assert filename_for('réponse-法律.txt') == 'réponse-法律.txt'
+
+
+@pytest.mark.parametrize('extension,entries', [
+    ('odt', {
+        'mimetype': 'application/vnd.oasis.opendocument.text',
+        'content.xml': '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>Deadline Friday</text:p></office:text></office:body></office:document-content>',
+    }),
+    ('xlsx', {
+        '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
+        'xl/workbook.xml': '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Deadlines" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        'xl/_rels/workbook.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+        'xl/worksheets/sheet1.xml': '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Deadline Friday</t></is></c></row></sheetData></worksheet>',
+    }),
+    ('pptx', {
+        '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/></Types>',
+        'ppt/presentation.xml': '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:sldIdLst><p:sldId id="256" r:id="rId1"/></p:sldIdLst></p:presentation>',
+        'ppt/_rels/presentation.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>',
+        'ppt/slides/slide1.xml': '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>Deadline Friday</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>',
+    }),
+])
+def test_office_formats(extension, entries):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name, content in entries.items():
+            archive.writestr(name, content)
+    assert 'Friday' in convert_upload(output.getvalue(), 'notice.' + extension)['text']

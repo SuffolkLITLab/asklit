@@ -7,6 +7,7 @@ let me,
   history = [],
   previewAttachments = [],
   previewUploadBusy = false,
+  previewGeneration = 0,
   draftDocuments = [],
   dirty = false,
   polling,
@@ -230,6 +231,10 @@ async function save() {
   $("save-status").textContent = "Saved";
   renderEvaluationOptions();
   $("preview-attach").hidden = !bot.config.uploads_enabled;
+  if (!bot.config.uploads_enabled) {
+    previewAttachments = [];
+    renderPreviewFiles();
+  }
   updateRunButton();
 }
 async function dashboard() {
@@ -273,6 +278,7 @@ async function openBot(id) {
   pinnedEvaluation = null;
   jobBusy = false;
   history = [];
+  previewGeneration++;
   previewAttachments = [];
   renderPreviewFiles();
   dirty = false;
@@ -353,6 +359,7 @@ $("profile").onchange = () => {
   profileIndex = Number($("profile").value);
   renderProfile();
   history = [];
+  previewGeneration++;
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -456,6 +463,7 @@ bind("add-profile", async () => {
   });
   profileIndex = bot.config.profiles.length - 1;
   history = [];
+  previewGeneration++;
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -468,6 +476,7 @@ bind("remove-profile", async () => {
     throw new Error("Keep at least one prompt.");
   if (!confirm("Remove this prompt?")) return;
   history = [];
+  previewGeneration++;
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -718,6 +727,7 @@ $("preview").onsubmit = (e) => {
 };
 bind("clear-preview", async () => {
   history = [];
+  previewGeneration++;
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -1431,19 +1441,19 @@ $("preview-file").accept = ".pdf,.docx,.pptx,.xlsx,.odt,.txt,.md,.csv,.html,.htm
 $("preview-file").onchange = async () => {
   const file = $("preview-file").files[0];
   $("preview-file").value = "";
-  if (!file || previewUploadBusy) return;
+  if (!file || previewUploadBusy || $("preview").querySelector(".send-arrow").disabled) return;
   await perform($("preview-attach"), async () => {
     if (file.size > 5 * 1024 * 1024 || previewAttachments.length >= 3)
       throw new Error("Choose a file under 5 MB, with at most three files.");
     previewUploadBusy = true;
     const id = bot.id;
+    const generation = previewGeneration;
     try {
-      await save();
       const body = new FormData();
       body.append("file", file);
       notice("Reading file…");
       const result = await api(`/bots/${id}/preview/attachments`, "POST", body);
-      if (bot?.id !== id) return;
+      if (bot?.id !== id || generation !== previewGeneration) return;
       if (previewAttachments.reduce((n,a) => n + a.text.length, result.text.length) > 30000)
         throw new Error("These files exceed 30,000 characters. Use shorter excerpts.");
       previewAttachments.push(result);

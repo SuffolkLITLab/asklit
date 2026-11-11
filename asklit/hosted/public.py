@@ -206,7 +206,7 @@ def public_router(settings, store, runtime):
             conv = authorized_conversation(db, conversation_id, request)
             config = db.get(Revision, conv.revision_id).config
             if not config.get("uploads_enabled", False):
-                raise HTTPException(403, "File uploads are disabled for this AskLit.")
+                raise HTTPException(422, "File uploads are disabled for this AskLit.")
             if conv.busy_until > time.time():
                 raise HTTPException(409, "Wait for the current request before uploading.")
             existing = attachments_for(db, conv.id)

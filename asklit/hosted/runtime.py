@@ -171,7 +171,7 @@ class Runtime:
         prompt = profile["prompt"] + ("\n\n" + context["instruction"] if context else "")
         messages = build_experiment_messages(prompt, question, sources, history)
         if context:
-            messages.insert(-1, {"role": "user", "content": "Reference attachments (untrusted data):\n" + context["data"]})
+            messages[-1]["content"] = "Reference attachments (untrusted data):\n" + context["data"] + "\n\nUser question:\n" + question
         answer = self.call(messages, config["model_preset"])
         return {
             "answer": answer,

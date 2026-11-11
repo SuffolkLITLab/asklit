@@ -102,8 +102,7 @@ def heartbeat(store, job_id, stop):
 
 
 def index_document(job, store, settings, runtime):
-    from asklit.ingestion import chunk_pages
-    from .uploads import convert_upload
+    from asklit.ingestion import chunk_pages, extract_text
 
     with store.transaction() as db:
         doc = db.get(Document, job.payload["document_id"])
@@ -111,9 +110,16 @@ def index_document(job, store, settings, runtime):
             raise ValueError("Invalid document.")
         model = doc.embedding_model
     with object_store(settings).materialize(doc.storage_key) as path:
-        converted = convert_upload(path.read_bytes(), doc.filename,
-                                   max_bytes=settings.max_upload_bytes, max_chars=2_000_000, max_pages=200)
-        pages = converted["pages"]
+        if path.suffix == ".docx":
+            with zipfile.ZipFile(path) as archive:
+                if (
+                    sum(info.file_size for info in archive.infolist())
+                    > 50 * 1024 * 1024
+                ):
+                    raise ValueError("Expanded document exceeds 50 MB.")
+        text, pages = extract_text(str(path))
+    if len(text) > 2_000_000:
+        raise ValueError("Document contains more than two million characters.")
     chunks = chunk_pages(pages)
     if not chunks or len(chunks) > MAX_CHUNKS:
         raise ValueError("Document has no readable text or exceeds the chunk limit.")

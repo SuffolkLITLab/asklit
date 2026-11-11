@@ -10,6 +10,7 @@ import threading
 import sys
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -32,7 +33,7 @@ def upload_metadata(config):
 
 def filename_for(value):
     name = Path((value or "").replace("\\", "/")).name
-    name = re.sub(r"[^\w .()-]", "_", name, flags=re.ASCII)[-180:]
+    name = "".join("_" if unicodedata.category(c).startswith("C") else c for c in name)[-180:]
     if Path(name).suffix.lower() not in EXTENSIONS:
         raise HTTPException(422, "Upload PDF, DOCX, PPTX, XLSX, ODT, text, Markdown, CSV, or HTML.")
     return name
@@ -62,6 +63,8 @@ def convert_upload(data, filename, *, max_bytes=MAX_BYTES, max_chars=MAX_CHARS, 
                     os.killpg(process.pid, signal.SIGKILL)
                     process.wait()
                     raise HTTPException(422, "Document conversion took too long. Try a smaller file.") from None
+                if process.returncode == 78:
+                    raise HTTPException(503, "Document conversion requires Linux Landlock ABI 3 and libseccomp. Contact the operator.")
                 if process.returncode or not result.exists() or result.stat().st_size > 12 * 1024 * 1024:
                     raise HTTPException(422, "Document conversion exceeded its safety limits.")
         finally:
@@ -101,7 +104,7 @@ def attachment_context(config, attachments):
     if not attachments:
         return None
     if not config.get("uploads_enabled", False):
-        raise HTTPException(403, "File uploads are disabled for this AskLit.")
+        raise HTTPException(422, "File uploads are disabled for this AskLit.")
     if len(attachments) > MAX_FILES or sum(len(a["text"]) for a in attachments) > MAX_CHARS:
         raise HTTPException(422, "Attachments exceed the conversation text limit.")
     return {

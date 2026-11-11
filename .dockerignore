@@ -6,6 +6,8 @@
 __pycache__
 *.pyc
 .env
+.env.hosted
+hosted-data
 .streamlit
 .agents
 .codex

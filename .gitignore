@@ -7,6 +7,8 @@ __pycache__/
 .ruff_cache/
 tmp/
 output/
+hosted-data/
+.env.hosted
 .streamlit/secrets.toml
 .streamlit/tulane-educator-cohort-secrets.toml
 .streamlit/github_oauth_fly

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AskLit Studio</title><link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/studio.css">
+  <script src="/static/studio.js" defer></script>
+</head>
+<body>
+<header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><span id="identity"></span><button id="logout" class="quiet" hidden>Sign out</button></header>
+<main>
+  <div id="notice" role="status" aria-live="polite"></div>
+  <section id="login" hidden class="sign-in">
+    <h1>Sign in to AskLit</h1>
+    <div class="actions">{% if google %}<a class="button" href="/auth/google/login">Continue with Google</a>{% endif %}
+    {% if microsoft %}<a class="button secondary" href="/auth/microsoft/login">Continue with Microsoft</a>{% endif %}</div>
+    {% if dev_mode %}
+    <form action="/auth/local/login" method="post">
+      <input type="hidden" name="csrf" value="{{ local_login_csrf }}">
+      {% if login_error %}<p role="alert">Incorrect username or password.</p>{% endif %}
+      <label>Username <input name="username" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit">Sign in locally</button>
+    </form>
+    {% endif %}
+    {% if not google and not microsoft and not dev_mode %}<p>Ask your administrator to enable sign-in.</p>{% endif %}
+  </section>
+  <section id="dashboard" hidden>
+    <div class="heading"><h1>Your AskLits</h1><button id="new-bot">New AskLit</button></div>
+    <div class="toolbar workspace-bar"><label class="sr-only" for="org">Organization</label><select id="org"></select>
+      <details class="menu"><summary>Workspace</summary><div class="actions"><button id="manage-org" class="quiet">Members & settings</button><button id="new-org" class="quiet">New organization</button></div></details></div>
+    <div id="bots" class="cards"></div>
+  </section>
+  <section id="organization" hidden>
+    <button class="quiet back">← Your AskLits</button><h1 id="org-title">Organization</h1>
+    <details class="panel"><summary>Gallery, links & sign-in</summary>
+      <label>Organization URL name<input id="organization-slug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" autocomplete="off"></label>
+      <label class="choice"><input id="organization-gallery" type="checkbox"><span>Enable this organization’s gallery</span></label>
+      <p><a id="organization-gallery-link" target="_blank" rel="noopener"></a></p>
+      <label>Google Workspace domains<textarea id="organization-domains" rows="2" placeholder="school.edu, alumni.school.edu"></textarea></label>
+      <label>Microsoft tenant IDs<textarea id="organization-tenants" rows="2" placeholder="One tenant UUID per line"></textarea></label>
+      <p class="muted">Members can sign in. These rules also admit accounts from the selected Google domains or Microsoft tenants.</p>
+      <button id="save-organization-sharing">Save organization settings</button>
+    </details>
+    <div class="panel"><h2>Members</h2><div id="members"></div></div>
+    <details class="panel"><summary>Invite someone</summary>
+      <label>Role <select id="invite-role"><option value="member">Member — own AskLits</option><option value="admin">Administrator — all AskLits</option></select></label>
+      <button id="invite">Create invitation link</button><output id="invite-link"></output><p class="muted">One use. Expires in seven days.</p></details>
+    <details class="panel"><summary>Activity</summary><div id="audit"></div></details>
+  </section>
+  <section id="editor" hidden>
+    <button class="quiet back">← Your AskLits</button>
+    <div class="heading"><div><h1 id="bot-heading"></h1><p id="save-status" role="status"></p></div>
+      <div class="actions"><button id="save">Save</button><button id="publish" class="secondary">Publish</button></div></div>
+    <nav class="tabs" aria-label="Editor sections">
+      <button data-tab="knowledge">Sources</button><button data-tab="prompt">Instructions</button>
+      <button data-tab="chat">Preview</button><button data-tab="evaluate">Evaluate</button><button data-tab="export">Settings</button>
+    </nav>
+    <div id="tab-knowledge" class="panel tab">
+      <form id="upload"><label for="upload-file">Add a source</label>
+        <div class="upload-line"><input id="upload-file" type="file" accept=".pdf,.docx,.txt,.md,.html,.htm" required aria-describedby="upload-hint"><button>Upload</button></div>
+        <p id="upload-hint" class="muted">PDF, Word, text, Markdown or HTML · Up to 10 MB</p>
+        <details><summary>Source groups</summary><label>Source group <input id="upload-kb" value="default" pattern="[a-z0-9-]+" required></label><button type="button" id="rename-kb" class="quiet">Rename group</button></details>
+      </form>
+      <div id="documents"></div>
+    </div>
+    <div id="tab-prompt" class="panel tab" hidden>
+      <div class="toolbar"><label>Prompt <select id="profile"></select></label><button id="add-profile" class="quiet">Add prompt</button></div>
+      <label>Instructions <textarea id="prompt" rows="12" maxlength="30000" placeholder="Describe what your assistant should help with and how it should respond."></textarea></label>
+      <details><summary>Conversation starters</summary><label>One per line<textarea id="starters" rows="3"></textarea></label></details>
+      <details><summary>Prompt settings</summary>
+        <div class="grid"><label>Name <input id="profile-label" maxlength="200"></label><label>Key <input id="profile-key" pattern="[a-z0-9-]+"></label><label>Source group <input id="profile-kb" pattern="[a-z0-9-]+"></label></div>
+        <label>Connected filenames<textarea id="connected-files" rows="3" placeholder="One per line. Leave blank to use all sources in this group."></textarea></label>
+        <p id="knowledge-hint" class="muted" role="status"></p><button id="remove-profile" class="quiet">Remove prompt</button>
+      </details>
+    </div>
+    <div id="tab-chat" class="panel tab" hidden>
+      <div class="heading"><h2>Preview</h2><span id="preview-profile" class="muted"></span></div>
+      <div id="transcript" class="transcript" aria-live="polite"></div>
+      <form id="preview"><label class="sr-only" for="question">Your message</label><div class="chat-composer"><textarea id="question" rows="2" maxlength="8000" placeholder="Ask a question…" required></textarea><button class="send-arrow" aria-label="Send" title="Send"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div><div class="actions"><button type="button" id="clear-preview" class="quiet">New conversation</button></div></form>
+    </div>
+    <div id="tab-evaluate" class="panel tab" hidden>
+      <div class="heading"><h2>Test questions</h2><button id="add-scenario" class="secondary">Add question</button></div>
+      <div id="scenarios"></div>
+      <details><summary>Import & export questions</summary>
+        <label>Scenario CSV<input id="scenario-import" type="file" accept=".csv,text/csv"></label>
+        <button id="scenario-export" class="secondary">Download questions CSV</button>
+      </details>
+      <details><summary>Generate questions from sources</summary>
+        <div class="grid"><label>Source prompt<select id="generation-profile"></select></label><label>Model<select id="generation-model"></select></label><label>Questions<input id="generation-count" type="number" min="1" max="12" value="5"></label></div>
+        <button id="generate-scenarios" class="secondary">Generate questions</button><p id="generation-status" role="status" class="muted"></p>
+      </details>
+      <section class="settings-section">
+        <h2>Run settings</h2>
+        <label>Evaluation<select id="evaluation-mode"><option value="single">Single run</option><option value="matrix">Model matrix</option></select></label>
+        <div class="grid evaluation-choices"><fieldset><legend>Prompts</legend><div id="evaluation-prompts"></div></fieldset><fieldset><legend>Source groups</legend><div id="evaluation-sources"></div></fieldset><fieldset><legend>Models</legend><div id="evaluation-models"></div></fieldset></div>
+        <details><summary>Grading & retrieval</summary><p class="muted">Expected answers accept exact text, <code>contains:</code>, <code>icontains:</code>, <code>contains-any:</code>, <code>contains-all:</code> or <code>llm-rubric:</code>.</p><label>Shared rubric rules<textarea id="rubrics" rows="3" placeholder="One rule per line"></textarea></label>
+          <div class="grid"><label>Judge model<select id="evaluation-judge"></select></label><label>Retrieved passages<input id="evaluation-top-k" type="number" min="1" max="10" value="5"></label></div>
+        </details>
+        <p id="eval-cost" class="muted" role="status"></p><button id="run-evaluation">Run evaluation</button>
+      </section>
+      <p id="evaluation-status" role="status"></p><div id="evaluation-results"></div>
+    </div>
+    <div id="tab-export" class="panel tab" hidden>
+      <h2>Assistant</h2><label>Title<input id="title" maxlength="200"></label>
+      <label>Gallery description<textarea id="description" rows="2" maxlength="500"></textarea></label>
+      <label>Opening message<textarea id="welcome" rows="3" maxlength="2000"></textarea></label>
+      <label>Model<select id="model"></select></label>
+      <details><summary>More settings</summary><label>Footer<input id="footer" maxlength="1000"></label><label>Retrieved passages<input id="top-k" type="number" min="1" max="10"></label></details>
+      <section class="settings-section"><h2>Sharing</h2><p id="publication"></p>
+        <label>Access<select id="sharing-mode"><option value="public">Public — listed in the gallery</option><option value="unlisted">Unlisted — anyone with the link</option><option value="password">Shared password</option><option value="organization">Organization sign-in</option></select></label>
+        <label for="sharing-slug">AskLit link</label><div class="slug-editor"><span id="sharing-prefix"></span><input id="sharing-slug" aria-label="AskLit URL name" minlength="2" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" autocomplete="off"></div>
+        <p class="muted" id="sharing-gallery-status"></p>
+        <div class="actions"><button id="save-sharing" class="secondary">Save access & link</button><button id="copy-link" class="secondary">Copy link</button><a id="sharing-link" target="_blank" rel="noopener">Open AskLit</a></div>
+        <div id="password-settings" hidden><h3>Shared passwords</h3><div id="password-list"></div>
+          <div class="grid"><label>Label<input id="password-label" maxlength="100" placeholder="Evening class"></label><label>Password or code<input id="password-value" type="password" maxlength="200" autocomplete="new-password"></label></div>
+          <button id="add-password" class="secondary">Add password</button><p class="muted">Passwords need at least four characters. Disable an entry to revoke its access.</p>
+        </div>
+        <details><summary>Integration</summary><button id="copy-bot-id" class="secondary" hidden>Copy bot ID</button></details>
+        <button id="unpublish" class="quiet">Unpublish</button>
+        <details id="revision-history"><summary>Version history</summary><div id="revisions"></div></details>
+      </section>
+      <section class="settings-section"><h2>Export</h2><div class="actions"><a id="workspace-download" class="button secondary">Download workspace</a><button id="export-bundle" class="secondary">Export Streamlit app</button></div>
+        <div id="export-result" role="status"></div><details><summary>Import workspace</summary><label>YAML file<input type="file" id="workspace-import" accept=".yml,.yaml"></label><p class="muted">Import into an empty AskLit.</p></details>
+      </section>
+      <details><summary>Ownership & archive</summary><label>New owner’s member ID<input id="owner-id"></label><button id="transfer" class="secondary">Transfer ownership</button><button id="archive" class="danger">Archive AskLit</button></details>
+    </div>
+    <details id="task-panel" class="task-panel" hidden><summary id="task-summary">Activity</summary><div id="jobs"></div></details>
+  </section>
+</main>
+<dialog id="name-dialog" aria-labelledby="name-dialog-title">
+  <form id="name-form">
+    <h2 id="name-dialog-title">New AskLit</h2>
+    <label for="name-input">Name</label>
+    <input id="name-input" name="name" maxlength="200" required autofocus autocomplete="off" aria-describedby="name-hint name-error">
+    <p id="name-hint" class="muted" hidden></p>
+    <p id="name-error" class="error-text" role="alert" hidden></p>
+    <div class="actions dialog-actions"><button id="name-cancel" type="button" class="secondary">Cancel</button><button id="name-submit" type="submit">Create AskLit</button></div>
+  </form>
+</dialog>
+<footer><img src="/static/brand/lit-lab-full.svg" alt="Legal Innovation & Technology Lab, Suffolk University Law School"></footer>
+</body></html>

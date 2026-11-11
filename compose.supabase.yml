@@ -1,0 +1,32 @@
+# Alternative to compose.hosted.yml: PostgreSQL and objects are hosted by Supabase.
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    command: [python, -m, asklit.hosted, init-db]
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["models:/var/cache/asklit"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    command: [python, -m, asklit.hosted.worker]
+    volumes: ["models:/var/cache/asklit"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  models:

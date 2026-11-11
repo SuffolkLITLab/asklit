@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    profiles: [postgres]
+    environment:
+      POSTGRES_DB: asklit
+      POSTGRES_USER: asklit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-asklit-local}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U asklit -d asklit"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    environment:
+      ASKLIT_DATABASE_URL: ${ASKLIT_DATABASE_URL:-postgresql+psycopg://asklit:${POSTGRES_PASSWORD:-asklit-local}@postgres:5432/asklit}
+    command: [python, -m, asklit.hosted, init-db]
+    volumes: ["objects:/var/lib/asklit"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    environment:
+      ASKLIT_DATABASE_URL: ${ASKLIT_DATABASE_URL:-postgresql+psycopg://asklit:${POSTGRES_PASSWORD:-asklit-local}@postgres:5432/asklit}
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["objects:/var/lib/asklit", "models:/var/cache/asklit"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.hosted
+    env_file: ${ASKLIT_ENV_FILE:-.env.hosted}
+    environment:
+      ASKLIT_DATABASE_URL: ${ASKLIT_DATABASE_URL:-postgresql+psycopg://asklit:${POSTGRES_PASSWORD:-asklit-local}@postgres:5432/asklit}
+    command: [python, -m, asklit.hosted.worker]
+    volumes: ["objects:/var/lib/asklit", "models:/var/cache/asklit"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+volumes:
+  database:
+  objects:
+  models:

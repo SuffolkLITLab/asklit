@@ -6,6 +6,19 @@ AskLit is a "no-code" factory for publishing high-quality AI chatbots grounded i
 
 For a more robust deployment, you can deploy it to fly.io or another inexpensive hosting option.
 
+## Hosted authoring and public API
+
+**AskLit Studio** adds persistent editing, Google/Microsoft SSO, school organizations,
+creator/admin permissions, publication history, and a dedicated chat backend.
+It uses FastAPI + Jinja2 with PostgreSQL and background workers, with SQLite and
+fixed username/password sign-in available for local development. Existing Streamlit
+workflows remain independent, and Studio can export standalone Streamlit apps.
+
+See the [hosted deployment guide](docs/hosted-deployment.md),
+[Supabase setup and live-test details](docs/supabase-deployment.md),
+[architecture](docs/hosted-architecture.md), and
+[static Next.js / CourtFormsOnline integration](integrations/nextjs/README.md).
+
 ## 🚀 Quick Start: The Scaffolder
 
 The easiest way to get started is using the **[AskLit Project Scaffolder](https://suffolklitlab.org/asklit)**. It is one five-step workflow: add a knowledge base, write a prompt, try the assistant conversationally, measure it against gold-labeled scenarios, and only then configure branding, access control, and deployment on the way out.

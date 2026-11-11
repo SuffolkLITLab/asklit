@@ -264,6 +264,7 @@ async function refreshMe() {
   const selected = $("org").value;
   me = await api("/me");
   $("change-password").hidden = !me.local_account;
+  $("new-org").hidden = me.local_account;
   $("identity").textContent = me.name;
   $("logout").hidden = false;
   $("org").replaceChildren();
@@ -1360,6 +1361,7 @@ async function organization() {
     api(`/organizations/${id}/local-accounts`),
   ]);
   renderOrgSharing(organizationSharing);
+  $("local-accounts-panel").hidden = !org.local_accounts_enabled;
   renderLocalAccounts(localAccounts, id);
   $("members").replaceChildren();
   for (const member of members) {
@@ -1428,6 +1430,7 @@ async function init() {
   }
   try {
     await refreshMe();
+    if (me.must_change_password) { show("dashboard"); accountDialog("own"); return; }
     const invite = sessionStorage.getItem("asklit-invite");
     if (invite) {
       if (confirm("Join the organization using this invitation?")) {
@@ -1524,6 +1527,7 @@ let localAccountMode = "create", localAccountTarget = "";
 function accountDialog(mode, target = "") {
   localAccountMode = mode; localAccountTarget = target;
   $("local-account-form").reset();
+  $("local-account-cancel").hidden = !!me.must_change_password;
   $("local-account-title").textContent = mode === "create" ? "Create local account" : mode === "own" ? "Change password" : "Reset password";
   $("local-account-details").hidden = mode !== "create";
   $("local-account-name").required = $("local-account-email").required = mode === "create";
@@ -1576,3 +1580,5 @@ function renderLocalAccounts(accounts, orgId) {
     container.append(row);
   }
 }
+
+$("local-account-dialog").addEventListener("cancel", event => { if (me?.must_change_password) event.preventDefault(); });

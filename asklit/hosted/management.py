@@ -122,6 +122,8 @@ def management_router(settings, store, runtime):
     def create_org(body: Name, request: Request):
         with store.transaction() as db:
             session = login_session(db, request, True)
+            if db.get(LocalAccount, session.user_id):
+                raise HTTPException(403, "Managed local accounts belong to one organization. Use an OAuth account for additional workspaces.")
             org = Organization(name=body.name)
             db.add(org)
             db.flush()
@@ -186,6 +188,9 @@ def management_router(settings, store, runtime):
             )
             if not invite or invite.used or invite.expires <= time.time():
                 raise HTTPException(404, "Invitation is invalid or expired.")
+            local = db.get(LocalAccount, session.user_id)
+            if local and local.managed_org_id != invite.org_id:
+                raise HTTPException(403, "Use an OAuth account to join another organization.")
             member = db.get(Membership, (invite.org_id, session.user_id))
             if not member:
                 db.add(
@@ -212,8 +217,8 @@ def management_router(settings, store, runtime):
                 raise HTTPException(403, "Only organization owners can change roles.")
             target = membership(db, org_id, user_id)
             local = db.scalar(select(LocalAccount).where(LocalAccount.user_id == user_id).with_for_update())
-            if body.role == "owner" and local and not local.enabled:
-                raise HTTPException(409, "Enable the local account before making it an owner.")
+            if body.role in {"owner", "admin"} and local and (not local.enabled or local.must_change_password):
+                raise HTTPException(409, "Enable the account and have its user change the initial password before granting administrator access.")
             owners = db.scalar(
                 select(func.count())
                 .select_from(Membership)
@@ -238,6 +243,8 @@ def management_router(settings, store, runtime):
                 raise HTTPException(
                     403, "An owner must demote an owner before removing them."
                 )
+            if db.get(LocalAccount, user_id):
+                raise HTTPException(409, "Disable managed local accounts from Local accounts instead.")
             db.delete(target)
             audit(db, session.user_id, org_id, "membership.remove", user_id)
             return {"removed": True}

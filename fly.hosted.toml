@@ -12,6 +12,7 @@ primary_region = "iad"
   ASKLIT_BASE_URL = "https://asklit-studio.fly.dev"
   ASKLIT_CORS_ORIGINS = "https://asklit-chat.fly.dev,https://courtformsonline.org,https://www.courtformsonline.org"
   ASKLIT_DEV_MODE = "false"
+  ASKLIT_TRUST_FLY_PROXY = "true"
   ASKLIT_STORAGE_BACKEND = "supabase"
   SUPABASE_STORAGE_BUCKET = "asklit-private"
   ASKLIT_STORAGE = "/var/lib/asklit"
@@ -19,7 +20,7 @@ primary_region = "iad"
   ASKLIT_EVALUATION_MAX_CALLS = "240"
 
 [processes]
-  web = "uvicorn asklit.hosted.app:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log --proxy-headers --forwarded-allow-ips=*"
+  web = "uvicorn asklit.hosted.app:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log --no-proxy-headers"
   worker = "python -m asklit.hosted.worker"
 
 [http_service]

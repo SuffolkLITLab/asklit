@@ -19,6 +19,7 @@ class Settings:
     speech_tts_model: str = ""
     speech_voice: str = "alloy"
     speech_daily_calls: int = 1000
+    trust_fly_proxy: bool = False
     dev_mode: bool = False
     dev_username: str = "dev@asklit.local"
     dev_password: str = field(default="asklit", repr=False)
@@ -182,6 +183,7 @@ class Settings:
             speech_voice=os.getenv("ASKLIT_SPEECH_VOICE", "alloy"),
             speech_daily_calls=int(os.getenv("ASKLIT_SPEECH_DAILY_CALLS", "1000")),
             dev_mode=dev_mode,
+            trust_fly_proxy=os.getenv("ASKLIT_TRUST_FLY_PROXY", "false").lower() == "true",
             dev_username=os.getenv("ASKLIT_DEV_USERNAME", "dev@asklit.local"),
             dev_password=os.getenv("ASKLIT_DEV_PASSWORD", "asklit"),
             secret_key=secret,

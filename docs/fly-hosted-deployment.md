@@ -86,3 +86,22 @@ private file; do not put passwords in shell arguments. It refuses to overwrite
 an existing account or organization link. There is no public signup or password
 recovery endpoint: an administrator resets lost passwords. A CLI session must
 have the production database environment to bootstrap production.
+
+Local account creation is enabled automatically for the bootstrapped lab
+organization. For another trusted organization, the operator can enable it with
+`python -m asklit.hosted enable-local-accounts --organization-id ID`. Newly
+self-created OAuth workspaces cannot provision local accounts until enabled.
+Managed local accounts belong to one organization; use OAuth accounts for
+membership in multiple organizations. Newly created/reset password accounts must
+choose their own password before accessing Studio. Bootstrap passwords are
+operator-generated and can be changed from the header.
+
+Fly deployments bind Uvicorn to IPv4 and use `ASKLIT_TRUST_FLY_PROXY=true` to take
+client addresses from Fly's `Fly-Client-IP`, ignoring client-controlled
+`X-Forwarded-For` chains. Do not enable this setting on a directly reachable
+non-Fly server. Use your own trusted-proxy configuration there.
+
+Google Cloud project `suffolk-asklit` is owned by the lab's Google account.
+OAuth client creation/consent configuration is independent of Fly and Supabase.
+Project IAM can grant teammates `roles/oauthconfig.editor` to manage OAuth
+settings using their own Google identities.

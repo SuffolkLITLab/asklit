@@ -1,6 +1,7 @@
 """FastAPI application factory. Run: uvicorn asklit.hosted.app:create_app --factory"""
 
 from pathlib import Path
+from ipaddress import ip_address
 from .security import token
 
 from fastapi import FastAPI, Request
@@ -22,6 +23,25 @@ from .runtime import Runtime
 from .settings import Settings
 
 ROOT = Path(__file__).parent
+
+
+class FlyClientAddress:
+    """Use Fly's connection address, not a client-supplied X-Forwarded-For chain.
+
+    Enable only behind Fly ingress, binding the server to IPv4 (not private 6PN).
+    """
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            raw = dict(scope.get("headers", [])).get(b"fly-client-ip", b"")
+            try:
+                address = str(ip_address(raw.decode("ascii")))
+            except (ValueError, UnicodeDecodeError):
+                address = "unknown"
+            scope = dict(scope, client=(address, 0))
+        await self.app(scope, receive, send)
 
 
 class BodyLimit:
@@ -80,6 +100,8 @@ def create_app(settings=None, store=None, runtime=None):
         max_age=600,
     )
     app.add_middleware(BodyLimit, limit=settings.max_upload_bytes + 1024 * 1024)
+    if settings.trust_fly_proxy:
+        app.add_middleware(FlyClientAddress)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.origins,
@@ -112,7 +134,8 @@ def create_app(settings=None, store=None, runtime=None):
     def dashboard(request: Request):
         if request.query_params.get("next"):
             request.session["after_login"] = safe_next(request.query_params["next"])
-        request.session["local_login_csrf"] = token()
+        if not request.session.get("local_login_csrf"):
+            request.session["local_login_csrf"] = token()
         return templates.TemplateResponse(
             request=request,
             name="index.html",

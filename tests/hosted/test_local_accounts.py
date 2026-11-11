@@ -1,7 +1,7 @@
 import re
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from asklit.hosted.models import LocalAccount, Membership
+from asklit.hosted.models import LocalAccount, Membership, Organization
 from asklit.hosted.local_accounts import bootstrap_admin
 
 PASSWORD = 'correct horse battery staple'
@@ -9,6 +9,8 @@ NEW = 'another strong local password'
 
 
 def create(hosted, email='student@example.org', role='member'):
+    with hosted[1].transaction() as db:
+        db.get(Organization,'school').local_accounts_enabled=True
     r=hosted[4]('owner').post('/api/organizations/school/local-accounts',json={'email':email,'name':'Student','password':PASSWORD,'role':role})
     assert r.status_code==200,r.text
     return r.json()
@@ -29,8 +31,9 @@ def test_local_login_csrf_normalization_and_no_oauth_identity_merge(hosted):
         me=c.get('/api/me').json()
         assert me['id']==account['id'] and me['local_account']
         assert me['organizations'][0]['role']=='member'
-        assert 'password' not in str(me)
-        assert c.get('/api/organizations/school/local-accounts').status_code==404
+        assert PASSWORD not in str(me) and 'password_hash' not in me
+        assert me['must_change_password']
+        assert c.get('/api/organizations/school/local-accounts').status_code==403
         assert c.post('/auth/local/login',data={}).status_code in [404,405]
     with hosted[1].transaction() as db:
         assert db.get(LocalAccount,account['id']).password_hash != PASSWORD
@@ -107,3 +110,74 @@ def test_local_membership_is_explicit_and_disabled_users_cannot_be_owners(hosted
     c=hosted[4]('owner')
     assert c.patch('/api/organizations/school/local-accounts/'+account['id'],json={'enabled':False}).status_code==200
     assert c.patch('/api/organizations/school/members/'+account['id'],json={'role':'owner'}).status_code==409
+
+
+def test_provisioning_requires_operator_enablement(hosted):
+    c=hosted[4]('owner')
+    assert c.post('/api/organizations/school/local-accounts',json={'email':'x@example.org','name':'X','password':PASSWORD}).status_code==403
+
+
+def test_forced_password_change_and_organization_isolation(hosted):
+    account=create(hosted)
+    invite=hosted[4]('outsider').post('/api/organizations/other/invitations',json={'role':'member'}).json()['url'].split('invite=')[1]
+    with TestClient(hosted[3].app) as c:
+        sign_in(c,account['email'])
+        c.headers['x-csrf-token']=c.get('/api/me').json()['csrf']
+        assert c.get('/api/bots').status_code==403
+        assert c.post('/api/account/password',json={'current_password':PASSWORD,'password':PASSWORD}).status_code==400
+        assert c.post('/api/account/password',json={'current_password':PASSWORD,'password':NEW}).status_code==200
+        sign_in(c,account['email'],NEW)
+        me=c.get('/api/me').json();c.headers['x-csrf-token']=me['csrf']
+        assert me['must_change_password'] is False
+        assert c.get('/api/bots').status_code==200
+        assert c.post('/api/organizations',json={'name':'Escape'}).status_code==403
+        assert c.post('/api/invitations/accept',json={'token':invite}).status_code==403
+    owner=hosted[4]('owner')
+    assert owner.delete('/api/organizations/school/members/'+account['id']).status_code==409
+    with hosted[1].transaction() as db:
+        db.delete(db.get(Membership,('school',account['id'])))
+    assert owner.post('/api/organizations/school/local-accounts/'+account['id']+'/password',json={'password':NEW}).status_code==404
+
+
+def test_bad_attempts_from_one_ip_do_not_block_another(hosted,monkeypatch):
+    monkeypatch.setattr('asklit.hosted.local_accounts.time.time',lambda:1794400000.0)
+    # Existing fixture sessions use real time and remain unexpired.
+    with TestClient(hosted[3].app,client=('192.0.2.1',5000)) as a, TestClient(hosted[3].app,client=('192.0.2.2',5000)) as b:
+        for _ in range(10):assert sign_in(a,'nobody@example.org').status_code==303
+        assert sign_in(a,'nobody@example.org').status_code==429
+        assert sign_in(b,'nobody@example.org').status_code==303
+        assert sign_in(b,'bad\x00@example.org').status_code==303
+
+
+def test_fly_client_address_ignores_spoofed_forwarded_chain():
+    import asyncio
+    from asklit.hosted.app import FlyClientAddress
+    captured=[]
+    async def app(scope,receive,send):captured.append(scope['client'][0])
+    middleware=FlyClientAddress(app)
+    for headers in [[(b'fly-client-ip',b'192.0.2.10'),(b'x-forwarded-for',b'198.51.100.42')],[(b'x-forwarded-for',b'198.51.100.42')]]:
+        asyncio.run(middleware({'type':'http','headers':headers,'client':('proxy',123)},None,None))
+    assert captured==['192.0.2.10','unknown']
+
+
+def test_password_reset_during_login_rejects_stale_password(hosted,monkeypatch):
+    import asklit.hosted.local_accounts as accounts
+    account=create(hosted)
+    original=accounts.password_matches
+    def verify_then_reset(value,stored):
+        valid=original(value,stored)
+        r=hosted[4]('owner').post('/api/organizations/school/local-accounts/'+account['id']+'/password',json={'password':NEW})
+        assert r.status_code==200
+        return valid
+    monkeypatch.setattr(accounts,'password_matches',verify_then_reset)
+    with TestClient(hosted[3].app) as c:
+        assert sign_in(c,account['email']).headers['location']=='/?login_error=1'
+        assert c.get('/api/me').status_code==401
+
+
+def test_reset_refuses_legacy_cross_organization_account(hosted):
+    account=create(hosted)
+    with hosted[1].transaction() as db:
+        db.add(Membership(org_id='other',user_id=account['id'],role='member'))
+    r=hosted[4]('owner').post('/api/organizations/school/local-accounts/'+account['id']+'/password',json={'password':NEW})
+    assert r.status_code==403

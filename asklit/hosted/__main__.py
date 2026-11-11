@@ -10,6 +10,8 @@ def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init-db")
+    enable = commands.add_parser("enable-local-accounts")
+    enable.add_argument("--organization-id", required=True)
     admin = commands.add_parser("create-local-admin")
     admin.add_argument("--email", required=True)
     admin.add_argument("--name", required=True)
@@ -20,6 +22,14 @@ def main():
     if args.command == "init-db":
         command.upgrade(Config(str(Path(__file__).resolve().parents[2] / "alembic.ini")), "head")
         print("Hosted database migrated to the latest schema.")
+    elif args.command == "enable-local-accounts":
+        from .models import Store, Organization
+        from .settings import Settings
+        with Store(Settings.from_env().database_url).transaction() as db:
+            org = db.get(Organization, args.organization_id)
+            if not org: parser.error("Organization not found.")
+            org.local_accounts_enabled = True
+        print("Organization administrators can now create local accounts.")
     else:
         from .models import Store
         from .settings import Settings

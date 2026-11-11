@@ -27,8 +27,10 @@ def login_session(db, request, mutation=False):
     local = db.get(LocalAccount, session.user_id)
     if local and not local.enabled:
         raise HTTPException(401, "Please sign in.")
+    if local and local.must_change_password and request.url.path not in {"/api/me", "/api/logout", "/api/account/password"}:
+        raise HTTPException(403, "Change your password before continuing.")
     if mutation and not secrets.compare_digest(
-        request.headers.get("x-csrf-token", ""), session.csrf
+        request.headers.get("x-csrf-token", "").encode(), session.csrf.encode()
     ):
         raise HTTPException(403, "Invalid CSRF token. Reload this page.")
     return session

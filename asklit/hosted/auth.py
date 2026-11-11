@@ -235,6 +235,7 @@ def auth_router(settings, store):
         with store.transaction() as db:
             session = login_session(db, request)
             user = db.get(User, session.user_id)
+            local = db.get(LocalAccount, user.id)
             orgs = db.execute(
                 select(Organization, Membership)
                 .join(Membership)
@@ -245,9 +246,10 @@ def auth_router(settings, store):
                 "name": user.name,
                 "email": user.email,
                 "csrf": session.csrf,
-                "local_account": db.get(LocalAccount, user.id) is not None,
+                "local_account": local is not None,
+                "must_change_password": bool(local and local.must_change_password),
                 "organizations": [
-                    {"id": o.id, "name": o.name, "role": m.role} for o, m in orgs
+                    {"id": o.id, "name": o.name, "role": m.role, "local_accounts_enabled": o.local_accounts_enabled} for o, m in orgs
                 ],
                 "models": list(settings.models),
                 "model_labels": {

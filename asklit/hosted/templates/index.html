@@ -52,14 +52,14 @@
     <div class="heading"><div><h1 id="bot-heading"></h1><p id="save-status" role="status"></p></div>
       <div class="actions"><button id="save">Save</button><button id="publish" class="secondary">Publish</button></div></div>
     <nav class="tabs" aria-label="Editor sections">
-      <button data-tab="knowledge">Sources</button><button data-tab="prompt">Instructions</button>
+      <button data-tab="knowledge">Knowledge bases</button><button data-tab="prompt">Instructions</button>
       <button data-tab="chat">Preview</button><button data-tab="evaluate">Evaluate</button><button data-tab="export">Settings</button>
     </nav>
     <div id="tab-knowledge" class="panel tab">
-      <form id="upload"><label for="upload-file">Add a source</label>
+      <form id="upload"><label for="upload-file">Add a document</label>
         <div class="upload-line"><input id="upload-file" type="file" accept=".pdf,.docx,.txt,.md,.html,.htm" required aria-describedby="upload-hint"><button>Upload</button></div>
         <p id="upload-hint" class="muted">PDF, Word, text, Markdown or HTML · Up to 10 MB</p>
-        <details><summary>Source groups</summary><label>Source group <input id="upload-kb" value="default" pattern="[a-z0-9-]+" required></label><button type="button" id="rename-kb" class="quiet">Rename group</button></details>
+        <details><summary>Knowledge bases</summary><label>Knowledge base <input id="upload-kb" value="default" pattern="[a-z0-9-]+" required></label><button type="button" id="rename-kb" class="quiet">Rename knowledge base</button></details>
       </form>
       <div id="documents"></div>
     </div>
@@ -68,8 +68,8 @@
       <label>Instructions <textarea id="prompt" rows="12" maxlength="30000" placeholder="Describe what your assistant should help with and how it should respond."></textarea></label>
       <details><summary>Conversation starters</summary><label>One per line<textarea id="starters" rows="3"></textarea></label></details>
       <details><summary>Prompt settings</summary>
-        <div class="grid"><label>Name <input id="profile-label" maxlength="200"></label><label>Key <input id="profile-key" pattern="[a-z0-9-]+"></label><label>Source group <input id="profile-kb" pattern="[a-z0-9-]+"></label></div>
-        <label>Connected filenames<textarea id="connected-files" rows="3" placeholder="One per line. Leave blank to use all sources in this group."></textarea></label>
+        <div class="grid"><label>Name <input id="profile-label" maxlength="200"></label><label>Key <input id="profile-key" pattern="[a-z0-9-]+"></label><label>Knowledge base <input id="profile-kb" pattern="[a-z0-9-]+"></label></div>
+        <label>Connected filenames<textarea id="connected-files" rows="3" placeholder="One per line. Leave blank to use all documents in this knowledge base."></textarea></label>
         <p id="knowledge-hint" class="muted" role="status"></p><button id="remove-profile" class="quiet">Remove prompt</button>
       </details>
     </div>
@@ -85,14 +85,14 @@
         <label>Scenario CSV<input id="scenario-import" type="file" accept=".csv,text/csv"></label>
         <button id="scenario-export" class="secondary">Download questions CSV</button>
       </details>
-      <details><summary>Generate questions from sources</summary>
-        <div class="grid"><label>Source prompt<select id="generation-profile"></select></label><label>Model<select id="generation-model"></select></label><label>Questions<input id="generation-count" type="number" min="1" max="12" value="5"></label></div>
+      <details><summary>Generate questions from knowledge bases</summary>
+        <div class="grid"><label>Prompt<select id="generation-profile"></select></label><label>Model<select id="generation-model"></select></label><label>Questions<input id="generation-count" type="number" min="1" max="12" value="5"></label></div>
         <button id="generate-scenarios" class="secondary">Generate questions</button><p id="generation-status" role="status" class="muted"></p>
       </details>
       <section class="settings-section">
         <h2>Run settings</h2>
         <label>Evaluation<select id="evaluation-mode"><option value="single">Single run</option><option value="matrix">Model matrix</option></select></label>
-        <div class="grid evaluation-choices"><fieldset><legend>Prompts</legend><div id="evaluation-prompts"></div></fieldset><fieldset><legend>Source groups</legend><div id="evaluation-sources"></div></fieldset><fieldset><legend>Models</legend><div id="evaluation-models"></div></fieldset></div>
+        <div class="grid evaluation-choices"><fieldset><legend>Prompts</legend><div id="evaluation-prompts"></div></fieldset><fieldset><legend>Knowledge bases</legend><div id="evaluation-sources"></div></fieldset><fieldset><legend>Models</legend><div id="evaluation-models"></div></fieldset></div>
         <details><summary>Grading & retrieval</summary><p class="muted">Expected answers accept exact text, <code>contains:</code>, <code>icontains:</code>, <code>contains-any:</code>, <code>contains-all:</code> or <code>llm-rubric:</code>.</p><label>Shared rubric rules<textarea id="rubrics" rows="3" placeholder="One rule per line"></textarea></label>
           <div class="grid"><label>Judge model<select id="evaluation-judge"></select></label><label>Retrieved passages<input id="evaluation-top-k" type="number" min="1" max="10" value="5"></label></div>
         </details>

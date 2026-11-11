@@ -159,8 +159,8 @@ function knowledgeHint() {
       (!files.length || files.includes(d.filename)),
   );
   $("knowledge-hint").textContent = docs.length
-    ? `${docs.length} source${docs.length === 1 ? "" : "s"} connected`
-    : "No sources connected";
+    ? `${docs.length} document${docs.length === 1 ? "" : "s"} connected`
+    : "No documents connected";
 }
 $("profile-kb").addEventListener("input", () => {
   $("upload-kb").value = $("profile-kb").value;
@@ -429,7 +429,7 @@ $("name-form").onsubmit = async (event) => {
 bind("rename-kb", () => {
   const oldName = $("upload-kb").value;
   nameDialog({
-    title: "Rename source group",
+    title: "Rename knowledge base",
     submit: "Rename",
     value: oldName,
     pattern: "[a-z0-9-]{1,100}",
@@ -445,7 +445,7 @@ bind("rename-kb", () => {
       renderProfile();
       $("upload-kb").value = newName;
       $("save-status").textContent = "Saved";
-      notice("Source group renamed.");
+      notice("Knowledge base renamed.");
       await refreshResources();
     },
   });
@@ -617,7 +617,7 @@ async function refreshResources() {
     row.append(
       el(
         "span",
-        `${{ index: "Source preparation", evaluate: "Evaluation", export: "Streamlit export" }[job.kind] || job.kind} · ${{ succeeded: "Complete", queued: "Waiting", running: "In progress", failed: "Failed" }[job.status] || job.status}${job.result.error ? " — " + job.result.error : ""}`,
+        `${{ index: "Document preparation", evaluate: "Evaluation", export: "Streamlit export" }[job.kind] || job.kind} · ${{ succeeded: "Complete", queued: "Waiting", running: "In progress", failed: "Failed" }[job.status] || job.status}${job.result.error ? " — " + job.result.error : ""}`,
         "grow",
       ),
     );
@@ -673,7 +673,7 @@ $("upload").onsubmit = (e) => {
     const result = await api(`/bots/${bot.id}/documents`, "POST", data);
     bot = await api(`/bots/${bot.id}`);
     notice(
-      result.duplicate ? "That document is already uploaded." : "Source added.",
+      result.duplicate ? "That document is already uploaded." : "Document added.",
     );
     $("upload-file").value = "";
     await refreshResources();
@@ -912,7 +912,7 @@ function renderScenarios() {
     $("scenarios").append(
       el(
         "p",
-        "Add a question, import a CSV, or generate questions from your sources.",
+        "Add a question, import a CSV, or generate questions from your knowledge bases.",
         "muted",
       ),
     );
@@ -1009,7 +1009,7 @@ function renderResults(rows) {
   }
   const summary = el("table");
   const head = el("tr");
-  ["Prompt", "Source group", "Model", "Passed", "Time"].forEach((v) =>
+  ["Prompt", "Knowledge base", "Model", "Passed", "Time"].forEach((v) =>
     head.append(el("th", v)),
   );
   summary.append(head);
@@ -1067,7 +1067,7 @@ function renderResults(rows) {
         ["Expected", row.expected],
         ["Answer", row.answer],
         ["Grade", row.reason],
-        ["Source group", row.knowledgebase],
+        ["Knowledge base", row.knowledgebase],
         ["Judge model", row.judge_model],
         [
           "Estimated tokens",
@@ -1140,7 +1140,7 @@ bind("publish", async () => {
   await save();
   if (
     !confirm(
-      "Publish this assistant and its retrieved source passages for public use?",
+      "Publish this assistant and its retrieved passages for public use?",
     )
   )
     return;

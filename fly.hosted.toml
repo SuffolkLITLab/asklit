@@ -1,0 +1,47 @@
+app = "asklit-studio"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile.hosted"
+
+[deploy]
+  release_command = "python -m asklit.hosted init-db"
+  release_command_timeout = "5m"
+
+[env]
+  ASKLIT_BASE_URL = "https://asklit-studio.fly.dev"
+  ASKLIT_CORS_ORIGINS = "https://asklit-chat.fly.dev,https://courtformsonline.org,https://www.courtformsonline.org"
+  ASKLIT_DEV_MODE = "false"
+  ASKLIT_STORAGE_BACKEND = "supabase"
+  SUPABASE_STORAGE_BUCKET = "asklit-private"
+  ASKLIT_STORAGE = "/var/lib/asklit"
+  HF_HOME = "/var/cache/asklit"
+  ASKLIT_EVALUATION_MAX_CALLS = "240"
+
+[processes]
+  web = "uvicorn asklit.hosted.app:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log --proxy-headers --forwarded-allow-ips=*"
+  worker = "python -m asklit.hosted.worker"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["web"]
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 20
+    hard_limit = 40
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "10s"
+    path = "/health"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 2
+  memory = "2gb"
+  processes = ["web", "worker"]

@@ -1,6 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const botId = $("public-chat").dataset.botId;
+let attachments = [];
 let metadata,
   accessToken = "",
   session = null,
@@ -18,11 +19,11 @@ async function request(
     method,
     credentials: authenticated ? "same-origin" : "omit",
     headers: {
-      ...(body ? { "Content-Type": "application/json" } : {}),
+      ...(body && !(body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: "Bearer " + token } : {}),
       ...(authenticated && csrf ? { "X-CSRF-Token": csrf } : {}),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
   const value = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -58,6 +59,9 @@ function showMetadata(data) {
     $("chat-profile").append(option);
   }
   $("chat-profile-label").hidden = data.profiles.length < 2;
+  $("chat-attach").hidden = !data.uploads?.enabled;
+  $("chat-upload-note").hidden = !data.uploads?.enabled;
+  $("chat-file").accept = data.uploads?.extensions.join(",") || "";
   renderStarters();
 }
 function renderStarters() {
@@ -142,8 +146,9 @@ function append(role, text, sources = []) {
 }
 function setBusy(value) {
   busy = value;
-  for (const id of ["chat-submit", "chat-clear"]) $(id).disabled = value;
+  for (const id of ["chat-submit", "chat-clear", "chat-attach", "chat-file"]) $(id).disabled = value;
   $("chat-profile").disabled = value || !!session;
+  renderFiles();
 }
 $("chat-send").onsubmit = async (event) => {
   event.preventDefault();
@@ -182,6 +187,8 @@ $("chat-send").onsubmit = async (event) => {
       retry = null;
     if (e.status === 403 || e.status === 404) {
       session = null;
+      attachments = [];
+      renderFiles();
       accessToken = "";
       try {
         showMetadata(await request(`/api/public/bots/${botId}`));
@@ -205,6 +212,8 @@ $("chat-clear").onclick = async () => {
       );
     session = null;
     retry = null;
+    attachments = [];
+    renderFiles();
     $("chat-messages").replaceChildren();
     $("chat-error").textContent = "";
     $("chat-profile").disabled = false;
@@ -212,6 +221,8 @@ $("chat-clear").onclick = async () => {
     if (e.status === 404) {
       session = null;
       retry = null;
+      attachments = [];
+      renderFiles();
       $("chat-messages").replaceChildren();
       $("chat-profile").disabled = false;
     } else report(e);
@@ -246,3 +257,65 @@ $("chat-question").addEventListener("keydown", (event) => {
     if (!event.repeat && !button.disabled) $("chat-send").requestSubmit(button);
   }
 });
+
+function renderFiles() {
+  $("chat-files").replaceChildren();
+  for (const file of attachments) {
+    const chip = document.createElement("span");
+    chip.className = "attachment";
+    chip.append(document.createTextNode(file.filename + " "));
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "quiet";
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", "Remove " + file.filename);
+    remove.disabled = busy;
+    remove.onclick = async () => {
+      if (busy || !session) return;
+      setBusy(true);
+      try {
+        await request(`/api/public/conversations/${session.id}/attachments/${file.id}`, "DELETE", undefined, session.token);
+        attachments = attachments.filter(a => a.id !== file.id);
+        retry = null;
+      } catch (e) { report(e); }
+      finally { setBusy(false); }
+    };
+    chip.append(remove);
+    $("chat-files").append(chip);
+  }
+}
+$("chat-attach").onclick = () => $("chat-file").click();
+$("chat-file").onchange = async () => {
+  const file = $("chat-file").files[0];
+  $("chat-file").value = "";
+  if (!file || busy) return;
+  if (file.size > metadata.uploads.max_bytes || attachments.length >= metadata.uploads.max_files) {
+    report(new Error("Choose a file under 5 MB, with at most three files per conversation."));
+    return;
+  }
+  setBusy(true);
+  $("chat-error").textContent = "";
+  $("chat-status").textContent = "Reading file…";
+  try {
+    if (!session) session = await request(`/api/public/bots/${botId}/conversations`, "POST",
+      {profile: $("chat-profile").value, access_token: accessToken});
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      await request(`/api/public/conversations/${session.id}/attachments`, "POST", body, session.token);
+    } finally {
+      // Reconcile a lost response without uploading a duplicate.
+      attachments = await request(`/api/public/conversations/${session.id}/attachments`, "GET", undefined, session.token);
+    }
+    retry = null;
+  } catch (e) {
+    if ([403, 404].includes(e.status)) {
+      session = null; accessToken = ""; attachments = [];
+      try { showMetadata(await request(`/api/public/bots/${botId}`)); } catch {}
+    }
+    report(e);
+  } finally {
+    $("chat-status").textContent = "";
+    setBusy(false);
+  }
+};

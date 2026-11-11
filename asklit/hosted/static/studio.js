@@ -5,6 +5,8 @@ let me,
   bot,
   profileIndex = 0,
   history = [],
+  previewAttachments = [],
+  previewUploadBusy = false,
   draftDocuments = [],
   dirty = false,
   polling,
@@ -173,6 +175,8 @@ function readConfig() {
     footer: $("footer").value,
     model_preset: $("model").value,
     top_k: Number($("top-k").value),
+    uploads_enabled: $("uploads-enabled").checked,
+    upload_prompt: $("upload-prompt").value,
     rubrics: lines($("rubrics").value),
     evaluation: readEvaluation(),
   });
@@ -225,6 +229,7 @@ async function save() {
   $("bot-heading").textContent = bot.title;
   $("save-status").textContent = "Saved";
   renderEvaluationOptions();
+  $("preview-attach").hidden = !bot.config.uploads_enabled;
   updateRunButton();
 }
 async function dashboard() {
@@ -268,6 +273,8 @@ async function openBot(id) {
   pinnedEvaluation = null;
   jobBusy = false;
   history = [];
+  previewAttachments = [];
+  renderPreviewFiles();
   dirty = false;
   $("transcript").replaceChildren();
   $("evaluation-results").replaceChildren();
@@ -280,6 +287,9 @@ async function openBot(id) {
   me.models.forEach((m) => option($("model"), m, m));
   $("model").value = bot.config.model_preset;
   $("top-k").value = bot.config.top_k;
+  $("uploads-enabled").checked = !!bot.config.uploads_enabled;
+  $("upload-prompt").value = bot.config.upload_prompt || "";
+  $("preview-attach").hidden = !bot.config.uploads_enabled;
   $("rubrics").value = bot.config.rubrics.join("\n");
   $("workspace-download").href = `/api/bots/${bot.id}/workspace`;
   $("owner-id").value = "";
@@ -343,6 +353,8 @@ $("profile").onchange = () => {
   profileIndex = Number($("profile").value);
   renderProfile();
   history = [];
+  previewAttachments = [];
+  renderPreviewFiles();
   $("transcript").replaceChildren();
 };
 bind("save", save);
@@ -444,6 +456,8 @@ bind("add-profile", async () => {
   });
   profileIndex = bot.config.profiles.length - 1;
   history = [];
+  previewAttachments = [];
+  renderPreviewFiles();
   $("transcript").replaceChildren();
   renderScenarios();
   renderProfile();
@@ -454,6 +468,8 @@ bind("remove-profile", async () => {
     throw new Error("Keep at least one prompt.");
   if (!confirm("Remove this prompt?")) return;
   history = [];
+  previewAttachments = [];
+  renderPreviewFiles();
   $("transcript").replaceChildren();
   bot.config.profiles.splice(profileIndex, 1);
   renderScenarios();
@@ -670,6 +686,7 @@ function appendMessage(role, text, sources = []) {
 }
 $("preview").onsubmit = (e) => {
   e.preventDefault();
+  if (previewUploadBusy) return;
   perform(e.submitter, async () => {
     if (history.length >= 24)
       throw new Error("Start a new preview after 12 questions.");
@@ -683,6 +700,7 @@ $("preview").onsubmit = (e) => {
         message: question,
         profile: bot.config.profiles[profileIndex].key,
         history,
+        attachments: previewAttachments,
       });
     } catch (error) {
       userMessage.remove();
@@ -700,6 +718,8 @@ $("preview").onsubmit = (e) => {
 };
 bind("clear-preview", async () => {
   history = [];
+  previewAttachments = [];
+  renderPreviewFiles();
   $("transcript").replaceChildren();
 });
 function readEvaluation() {
@@ -1393,3 +1413,42 @@ $("question").addEventListener("keydown", (event) => {
     if (!event.repeat && !button.disabled) $("preview").requestSubmit(button);
   }
 });
+
+function renderPreviewFiles() {
+  $("preview-files").replaceChildren();
+  for (const file of previewAttachments) {
+    const chip = el("span", file.filename, "attachment");
+    chip.append(action("×", () => {
+      previewAttachments = previewAttachments.filter(a => a !== file);
+      renderPreviewFiles();
+    }, "quiet"));
+    chip.lastChild.setAttribute("aria-label", "Remove " + file.filename);
+    $("preview-files").append(chip);
+  }
+}
+$("preview-attach").onclick = () => $("preview-file").click();
+$("preview-file").accept = ".pdf,.docx,.pptx,.xlsx,.odt,.txt,.md,.csv,.html,.htm";
+$("preview-file").onchange = async () => {
+  const file = $("preview-file").files[0];
+  $("preview-file").value = "";
+  if (!file || previewUploadBusy) return;
+  await perform($("preview-attach"), async () => {
+    if (file.size > 5 * 1024 * 1024 || previewAttachments.length >= 3)
+      throw new Error("Choose a file under 5 MB, with at most three files.");
+    previewUploadBusy = true;
+    const id = bot.id;
+    try {
+      await save();
+      const body = new FormData();
+      body.append("file", file);
+      notice("Reading file…");
+      const result = await api(`/bots/${id}/preview/attachments`, "POST", body);
+      if (bot?.id !== id) return;
+      if (previewAttachments.reduce((n,a) => n + a.text.length, result.text.length) > 30000)
+        throw new Error("These files exceed 30,000 characters. Use shorter excerpts.");
+      previewAttachments.push(result);
+      renderPreviewFiles();
+      notice("");
+    } finally { previewUploadBusy = false; }
+  });
+};

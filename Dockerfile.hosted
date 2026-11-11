@@ -2,7 +2,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     ASKLIT_STORAGE=/var/lib/asklit HF_HOME=/var/cache/asklit
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libseccomp2 && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt requirements-hosted.txt ./
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-hosted.txt

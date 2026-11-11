@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 
 
 def checked_key(key):
-    if not re.fullmatch(r"[a-f0-9]{32}\.(?:pdf|docx|txt|md|html|htm|zip)", key):
+    if not re.fullmatch(r"[a-f0-9]{32}\.(?:pdf|docx|pptx|xlsx|odt|csv|txt|md|html|htm|zip)", key):
         raise ValueError("Invalid object key.")
     return key
 

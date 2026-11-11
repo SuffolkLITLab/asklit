@@ -652,3 +652,12 @@ footer img {
   display: grid;
   place-items: center;
 }
+
+.chat-composer:has(.attach-button:not([hidden])) textarea { padding-bottom: 3.5rem; }
+.chat-composer .attach-button {
+  position: absolute; left: .7rem; bottom: .7rem;
+  width: 36px; height: 36px; padding: 7px; border-radius: 50%;
+}
+.attachment-list { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }
+.attachment { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--line); border-radius: 8px; padding: .15rem .6rem; max-width: 100%; overflow-wrap: anywhere; }
+.attachment button { padding: .1rem .4rem; }

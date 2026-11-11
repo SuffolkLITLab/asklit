@@ -342,3 +342,52 @@ and `/asklit?org=school` for the gallery. Organization sign-in opens the hosted
 site and returns access only to an explicitly configured CORS origin. Configure
 Google/Microsoft OAuth credentials to test real provider sign-in; development
 login covers the local handoff. Public GET requests never invoke a model.
+
+### Chat file uploads
+
+In Settings → File uploads, enable **Allow files in chat**, optionally add
+**Instructions for uploaded files**, save, and publish. Preview uses the saved
+draft; public conversations keep the settings of the publication they started
+with. Example instruction: “Identify deadlines, quote the relevant passage, and
+explain unfamiliar terms. Ask if the filing date is missing.”
+
+The paperclip uploads and converts a file before the next message. Uploading
+does not call a model or add the file to shared knowledge sources. Files can be
+removed individually. Extracted text is sent to the configured model with later
+questions, and deleted when the conversation is cleared or expires. Earlier
+answers may still contain excerpts after an individual file is removed.
+Authors cannot browse these attachments through Studio, exports, or galleries.
+
+Chat limits are three current files, 5 MB per file, 40 PDF pages, and 30,000
+extracted characters across the conversation. Over-limit documents are rejected,
+not silently truncated. Failed attempts count toward upload rate limits:
+12 per conversation per hour, 60 per client IP, and 300 per organization.
+Removing a file releases its text allowance, but does not refund attempts.
+Each API process allows two simultaneous conversions; each conversion has a
+15-second wall timeout, 10-second CPU limit, 512 MB address-space limit, and
+bounded output. Conversation leases serialize uploads, answers, and removals.
+
+Conversion supports readable PDF text with pypdf; DOCX, PPTX, XLSX, and ODT with
+[pinned AnyDoc](https://github.com/firecrawl/anydoc); UTF-8 text, Markdown and CSV;
+and HTML text extraction. The AnyDoc dependency is **firecrawl-anydoc**, not the
+unrelated `anydoc` package. Its hosted OCR option is disabled. Scanned PDFs and
+images need OCR before upload. Encrypted files, macros, embedded Office objects,
+oversized archives, and unsupported types are rejected. Office containers are
+limited to 1,000 entries and 25 MB expanded. Original chat files exist only in a
+temporary conversion directory and are removed after conversion.
+
+Converters run in separate Python processes with isolated imports, a clean
+environment, and Linux seccomp rules blocking sockets, process execution, and
+process inspection. This is resource/process hardening, not a separate VM or a
+complete filesystem sandbox. Docker installs `libseccomp2`; native Linux
+development also requires that library. Conversion fails closed if the kernel
+restrictions cannot be installed. No document conversion is delegated to a
+cloud service. The model provider still receives the extracted text when answering.
+
+The `hosted_attachments` table uses the existing conversation retention and
+database cascade deletion. Migrations apply the same Supabase RLS and
+PostgREST-role restrictions as all other private hosted tables. No public Storage
+bucket is needed. Existing author source uploads use the same bounded converters,
+with their separate 10 MB, 200-page, two-million-character indexing limits.
+Standalone Streamlit behavior is unchanged; chat attachments and their settings
+are features of the hosted chat and its static frontend.

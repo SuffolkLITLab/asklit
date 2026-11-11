@@ -359,12 +359,9 @@ def management_router(settings, store, runtime):
 
         if not re.fullmatch(r"[a-z0-9-]{1,100}", knowledgebase):
             raise HTTPException(422, "Invalid knowledge base name.")
-        filename = Path((file.filename or "").replace("\\", "/")).name[:255]
+        from .uploads import filename_for
+        filename = filename_for(file.filename)
         ext = Path(filename).suffix.lower()
-        if ext not in {".pdf", ".docx", ".txt", ".md", ".html", ".htm"}:
-            raise HTTPException(
-                422, "Upload PDF, DOCX, text, Markdown, or HTML documents."
-            )
         with store.transaction() as db:
             session = login_session(db, request, True)
             bot = accessible_bot(db, bot_id, session.user_id, True)
@@ -526,6 +523,24 @@ def management_router(settings, store, runtime):
             audit(db, session.user_id, bot.org_id, "bot.rollback", revision.id)
             return {"revision_id": revision.id}
 
+    @router.post("/bots/{bot_id}/preview/attachments")
+    def preview_attachment(bot_id: str, request: Request, file: UploadFile = File(...)):
+        from .uploads import MAX_BYTES, convert_upload, filename_for, reserve_upload
+        with store.transaction() as db:
+            session = login_session(db, request, True)
+            bot = accessible_bot(db, bot_id, session.user_id)
+            if not bot.draft.get("uploads_enabled", False):
+                raise HTTPException(403, "Enable file uploads in Settings first.")
+            reserve_upload(db, request, settings, bot.org_id, session.user_id)
+        filename = filename_for(file.filename)
+        value = convert_upload(file.file.read(MAX_BYTES + 1), filename)
+        with store.transaction() as db:
+            session = login_session(db, request, True)
+            bot = accessible_bot(db, bot_id, session.user_id)
+            if not bot.draft.get("uploads_enabled", False):
+                raise HTTPException(403, "File uploads are disabled.")
+        return {"filename": filename, "text": value["text"]}
+
     @router.post("/bots/{bot_id}/preview")
     def preview(bot_id: str, body: Preview, request: Request):
         if any(
@@ -541,11 +556,14 @@ def management_router(settings, store, runtime):
             bot = accessible_bot(db, bot_id, session.user_id)
             docs = ready_documents(db, bot)
             profile_for(bot.draft, body.profile)
+            from .uploads import attachment_context
+            attachment_context(bot.draft, [a.model_dump() for a in body.attachments])
             reserve_calls(db, bot.org_id, settings)
             config = bot.draft
         try:
             return runtime.answer(
-                config, docs, body.message, body.profile, body.history
+                config, docs, body.message, body.profile, body.history,
+                attachments=[a.model_dump() for a in body.attachments],
             )
         except HTTPException:
             raise

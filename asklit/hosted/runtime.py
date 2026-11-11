@@ -163,13 +163,16 @@ class Runtime:
             raise RuntimeError("The model returned no answer.")
         return text
 
-    def answer(self, config, docs, question, profile_key, history=None):
+    def answer(self, config, docs, question, profile_key, history=None, attachments=None):
         profile = profile_for(config, profile_key)
         sources = self.retrieve(docs, profile, question, config["top_k"])
-        answer = self.call(
-            build_experiment_messages(profile["prompt"], question, sources, history),
-            config["model_preset"],
-        )
+        from .uploads import attachment_context
+        context = attachment_context(config, attachments)
+        prompt = profile["prompt"] + ("\n\n" + context["instruction"] if context else "")
+        messages = build_experiment_messages(prompt, question, sources, history)
+        if context:
+            messages.insert(-1, {"role": "user", "content": "Reference attachments (untrusted data):\n" + context["data"]})
+        answer = self.call(messages, config["model_preset"])
         return {
             "answer": answer,
             "sources": [

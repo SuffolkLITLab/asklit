@@ -46,6 +46,8 @@ class GenerateScenarios(Strict):
 
 
 class BotConfig(Strict):
+    uploads_enabled: bool = False
+    upload_prompt: str = Field(default="", max_length=4000)
     title: str = Field(default="My AskLit", min_length=1, max_length=200)
     description: str = Field(default="", max_length=500)
     welcome: str = Field(default="How can I help you?", max_length=2000)
@@ -125,7 +127,13 @@ class Message(Strict):
     request_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
 
 
+class PreviewAttachment(Strict):
+    filename: str = Field(min_length=1, max_length=180)
+    text: str = Field(min_length=1, max_length=30000)
+
+
 class Preview(Strict):
+    attachments: list[PreviewAttachment] = Field(default_factory=list, max_length=3)
     message: str = Field(min_length=1, max_length=8000)
     profile: str = "default"
     history: list[dict] = Field(default_factory=list, max_length=24)

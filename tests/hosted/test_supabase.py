@@ -61,6 +61,7 @@ def test_supabase_data_api_cannot_bypass_backend_authorization(supabase):
             "hosted_login_sessions",
             "hosted_documents",
             "hosted_conversations",
+            "hosted_attachments",
         ]:
             response = httpx.get(
                 f"{supabase['API_URL']}/rest/v1/{table}?select=*",

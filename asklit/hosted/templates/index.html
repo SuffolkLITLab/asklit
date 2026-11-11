@@ -57,8 +57,8 @@
     </nav>
     <div id="tab-knowledge" class="panel tab">
       <form id="upload"><label for="upload-file">Add a source</label>
-        <div class="upload-line"><input id="upload-file" type="file" accept=".pdf,.docx,.txt,.md,.html,.htm" required aria-describedby="upload-hint"><button>Upload</button></div>
-        <p id="upload-hint" class="muted">PDF, Word, text, Markdown or HTML · Up to 10 MB</p>
+        <div class="upload-line"><input id="upload-file" type="file" accept=".pdf,.docx,.pptx,.xlsx,.odt,.csv,.txt,.md,.html,.htm" required aria-describedby="upload-hint"><button>Upload</button></div>
+        <p id="upload-hint" class="muted">PDF, Office, text, Markdown, CSV or HTML · Up to 10 MB</p>
         <details><summary>Source groups</summary><label>Source group <input id="upload-kb" value="default" pattern="[a-z0-9-]+" required></label><button type="button" id="rename-kb" class="quiet">Rename group</button></details>
       </form>
       <div id="documents"></div>
@@ -76,7 +76,7 @@
     <div id="tab-chat" class="panel tab" hidden>
       <div class="heading"><h2>Preview</h2><span id="preview-profile" class="muted"></span></div>
       <div id="transcript" class="transcript" aria-live="polite"></div>
-      <form id="preview"><label class="sr-only" for="question">Your message</label><div class="chat-composer"><textarea id="question" rows="2" maxlength="8000" placeholder="Ask a question…" required></textarea><button class="send-arrow" aria-label="Send" title="Send"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div><div class="actions"><button type="button" id="clear-preview" class="quiet">New conversation</button></div></form>
+      <div id="preview-files" class="attachment-list"></div><form id="preview"><label class="sr-only" for="question">Your message</label><div class="chat-composer"><textarea id="question" rows="2" maxlength="8000" placeholder="Ask a question…" required></textarea><button id="preview-attach" type="button" class="attach-button quiet" aria-label="Attach file" title="Attach file" hidden><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-9 9a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7l-10 10a2 2 0 0 1-2.8-2.8l9-9"/></svg></button><input id="preview-file" type="file" hidden><button class="send-arrow" aria-label="Send" title="Send"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg></button></div><div class="actions"><button type="button" id="clear-preview" class="quiet">New conversation</button></div></form>
     </div>
     <div id="tab-evaluate" class="panel tab" hidden>
       <div class="heading"><h2>Test questions</h2><button id="add-scenario" class="secondary">Add question</button></div>
@@ -106,6 +106,11 @@
       <label>Opening message<textarea id="welcome" rows="3" maxlength="2000"></textarea></label>
       <label>Model<select id="model"></select></label>
       <details><summary>More settings</summary><label>Footer<input id="footer" maxlength="1000"></label><label>Retrieved passages<input id="top-k" type="number" min="1" max="10"></label></details>
+      <section class="settings-section"><h2>File uploads</h2>
+        <label><input id="uploads-enabled" type="checkbox"> Allow files in chat</label>
+        <label>Instructions for uploaded files<textarea id="upload-prompt" maxlength="4000" rows="3" placeholder="For example: Identify deadlines and explain unfamiliar terms in the uploaded document."></textarea></label>
+        <p class="muted">Up to 3 files, 5 MB each, 40 PDF pages, and 30,000 extracted characters per conversation. Changes apply after publishing.</p>
+      </section>
       <section class="settings-section"><h2>Sharing</h2><p id="publication"></p>
         <label>Access<select id="sharing-mode"><option value="public">Public — listed in the gallery</option><option value="unlisted">Unlisted — anyone with the link</option><option value="password">Shared password</option><option value="organization">Organization sign-in</option></select></label>
         <label for="sharing-slug">AskLit link</label><div class="slug-editor"><span id="sharing-prefix"></span><input id="sharing-slug" aria-label="AskLit URL name" minlength="2" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*" autocomplete="off"></div>

@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 
@@ -176,6 +176,18 @@ class Conversation(Base):
     turns: Mapped[int] = mapped_column(Integer, default=0)
     busy_until: Mapped[float] = mapped_column(Float, default=0)
     active_request: Mapped[str] = mapped_column(String(100), default="")
+
+
+class Attachment(Base):
+    __tablename__ = "hosted_attachments"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("hosted_conversations.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(180))
+    text: Mapped[str] = mapped_column(Text)
+    size: Mapped[int] = mapped_column(Integer)
+    created: Mapped[float] = mapped_column(Float, default=time.time)
 
 
 class Job(Base):

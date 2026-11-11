@@ -1,15 +1,16 @@
 """Public metadata is read-only. Conversation creation and inference require POST."""
 
 import hashlib
+import json
 import hmac
 import secrets
 import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from .models import Bot, Conversation, RateBucket, Revision, Turn
+from .models import Attachment, Bot, Conversation, RateBucket, Revision, Turn
 from .runtime import profile_for, selected_documents
 from .schemas import AccessRequest, Message, StartChat
 from .access import (
@@ -20,6 +21,7 @@ from .access import (
     require_access,
 )
 from .security import digest, reserve_calls, token
+from .uploads import (MAX_BYTES, MAX_CHARS, MAX_FILES, convert_upload, filename_for, reserve_upload, upload_metadata)
 
 
 def public_bot(db, bot_id):
@@ -81,6 +83,7 @@ def public_router(settings, store, runtime):
         config = db.get(Revision, bot.published_id).config
         return {
             **common,
+            "uploads": upload_metadata(config),
             "title": config["title"],
             "welcome": config["welcome"],
             "footer": config["footer"],
@@ -182,13 +185,79 @@ def public_router(settings, store, runtime):
             db.delete(conversation)
         return {"deleted": True}
 
+    def attachments_for(db, conversation_id):
+        return list(db.scalars(select(Attachment).where(
+            Attachment.conversation_id == conversation_id
+        ).order_by(Attachment.created, Attachment.id)))
+
+    def attachment_view(item):
+        return {"id": item.id, "filename": item.filename, "size": item.size, "characters": len(item.text)}
+
+    @router.get("/conversations/{conversation_id}/attachments")
+    def list_attachments(conversation_id: str, request: Request):
+        with store.transaction() as db:
+            authorized_conversation(db, conversation_id, request)
+            return [attachment_view(a) for a in attachments_for(db, conversation_id)]
+
+    @router.post("/conversations/{conversation_id}/attachments")
+    def upload_attachment(conversation_id: str, request: Request, file: UploadFile = File(...)):
+        lease = "upload-" + token()
+        with store.transaction() as db:
+            conv = authorized_conversation(db, conversation_id, request)
+            config = db.get(Revision, conv.revision_id).config
+            if not config.get("uploads_enabled", False):
+                raise HTTPException(403, "File uploads are disabled for this AskLit.")
+            if conv.busy_until > time.time():
+                raise HTTPException(409, "Wait for the current request before uploading.")
+            existing = attachments_for(db, conv.id)
+            if len(existing) >= MAX_FILES:
+                raise HTTPException(422, "A conversation can have up to three attached files.")
+            remaining = MAX_CHARS - sum(len(a.text) for a in existing)
+            if remaining <= 0:
+                raise HTTPException(422, "This conversation has reached its attachment text limit.")
+            reserve_upload(db, request, settings, db.get(Bot, conv.bot_id).org_id, conv.id)
+            conv.active_request, conv.busy_until = lease, time.time() + 60
+        try:
+            filename = filename_for(file.filename)
+            data = file.file.read(MAX_BYTES + 1)
+            converted = convert_upload(data, filename, max_chars=remaining)
+            with store.transaction() as db:
+                conv = authorized_conversation(db, conversation_id, request)
+                if conv.active_request != lease or conv.busy_until <= time.time():
+                    raise HTTPException(409, "This upload expired. Try again.")
+                item = Attachment(conversation_id=conv.id, filename=filename,
+                                  text=converted["text"], size=len(data))
+                db.add(item)
+                db.flush()
+                conv.busy_until = 0
+                return attachment_view(item)
+        finally:
+            with store.transaction() as db:
+                conv = db.scalar(select(Conversation).where(Conversation.id == conversation_id).with_for_update())
+                if conv and conv.active_request == lease:
+                    conv.busy_until = 0
+
+    @router.delete("/conversations/{conversation_id}/attachments/{attachment_id}")
+    def remove_attachment(conversation_id: str, attachment_id: str, request: Request):
+        with store.transaction() as db:
+            conv = authorized_conversation(db, conversation_id, request)
+            if conv.busy_until > time.time():
+                raise HTTPException(409, "Wait for the current request before removing a file.")
+            item = db.get(Attachment, attachment_id)
+            if not item or item.conversation_id != conv.id:
+                raise HTTPException(404, "Attachment not found.")
+            db.delete(item)
+        return {"deleted": True}
+
     @router.post("/conversations/{conversation_id}/messages")
     def message(conversation_id: str, body: Message, request: Request):
         with store.transaction() as db:
             conversation = authorized_conversation(db, conversation_id, request)
+            attachments = attachments_for(db, conversation.id)
+            input_hash = digest(body.message + (json.dumps([a.id for a in attachments]) if attachments else ""))
             previous = db.get(Turn, (conversation.id, body.request_id))
             if previous:
-                if previous.input_hash != digest(body.message):
+                if previous.input_hash != input_hash:
                     return turn_error(
                         409,
                         "request_conflict",
@@ -229,7 +298,7 @@ def public_router(settings, store, runtime):
                 Turn(
                     conversation_id=conversation.id,
                     request_id=body.request_id,
-                    input_hash=digest(body.message),
+                    input_hash=input_hash,
                 )
             )
             revision = db.get(Revision, conversation.revision_id)
@@ -238,7 +307,8 @@ def public_router(settings, store, runtime):
             history = conversation.messages
             profile = conversation.profile
         try:
-            result = runtime.answer(config, docs, body.message, profile, history)
+            extra = {"attachments": [{"filename": a.filename, "text": a.text} for a in attachments]} if attachments else {}
+            result = runtime.answer(config, docs, body.message, profile, history, **extra)
         except Exception:
             with store.transaction() as db:
                 conv = db.scalar(

@@ -102,6 +102,8 @@ class OrganizationSharing(Strict):
         min_length=2, max_length=80, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$"
     )
     gallery_enabled: bool = False
+    paid_voice_enabled: bool = False
+    paid_voice_daily_calls: int = Field(default=100, ge=1, le=5000)
     allowed_domains: list[str] = Field(default_factory=list, max_length=50)
     microsoft_tenants: list[str] = Field(default_factory=list, max_length=50)
 
@@ -155,3 +157,8 @@ class AcceptInvite(Strict):
 class RenameKnowledgebase(Version):
     old_name: str = Field(pattern=r"^[a-z0-9-]{1,100}$")
     new_name: str = Field(pattern=r"^[a-z0-9-]{1,100}$")
+
+
+class SpeechRequest(Strict):
+    request_id: str = Field(default="", max_length=100)
+    text: str = Field(default="", max_length=4000)

@@ -661,3 +661,10 @@ footer img {
 .attachment-list { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }
 .attachment { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid var(--line); border-radius: 8px; padding: .15rem .6rem; max-width: 100%; overflow-wrap: anywhere; }
 .attachment button { padding: .1rem .4rem; }
+
+.voice-panel { margin: 1rem 0; }
+.voice-panel .actions { align-items: center; }
+.voice-panel button svg { vertical-align: middle; margin-right: .4rem; }
+.voice-panel details { margin-top: .65rem; }
+.voice-panel details label { max-width: 30rem; }
+.voice-notice { font-size: .8rem; margin: .5rem 0; }

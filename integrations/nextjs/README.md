@@ -8,7 +8,7 @@ the hosted AskLit public API and is compatible with `output: 'export'`.
 3. Set `NEXT_PUBLIC_ASKLIT_API_URL=https://YOUR-ASKLIT-HOST` when building Next.js.
    This is a public API origin, not a secret. Never put model keys or SSO secrets
    in a `NEXT_PUBLIC_` variable.
-4. Copy the component into the frontend and pass a published bot ID:
+4. Copy `AskLitChat.tsx`, `AskLitVoiceControls.tsx`, and `asklitVoice.js` into the same frontend component directory. Copy `asklit-voice-worklet.js` into `public/`. Pass a published bot ID:
 
 ```tsx
 <AskLitChat botId="THE_32_CHARACTER_BOT_ID" />

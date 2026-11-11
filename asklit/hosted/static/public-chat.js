@@ -14,6 +14,7 @@ async function request(
   body,
   token = "",
   authenticated = false,
+  asBlob = false,
 ) {
   const response = await fetch(path, {
     method,
@@ -25,7 +26,7 @@ async function request(
     },
     body: body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
-  const value = await response.json().catch(() => ({}));
+  const value = response.ok && asBlob ? null : await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(
       typeof value.detail === "string"
@@ -36,7 +37,7 @@ async function request(
     error.code = value.code;
     throw error;
   }
-  return value;
+  return asBlob ? response.blob() : value;
 }
 function showMetadata(data) {
   metadata = data;
@@ -62,6 +63,7 @@ function showMetadata(data) {
   $("chat-attach").hidden = !data.uploads?.enabled;
   $("chat-upload-note").hidden = !data.uploads?.enabled;
   $("chat-file").accept = data.uploads?.extensions.join(",") || "";
+  chatVoice.setPolicy(data.voice || { browser: true, paid: false });
   renderStarters();
 }
 function renderStarters() {
@@ -146,6 +148,7 @@ function append(role, text, sources = []) {
 }
 function setBusy(value) {
   busy = value;
+  chatVoice.setBusy(value);
   for (const id of ["chat-submit", "chat-clear", "chat-attach", "chat-file"]) $(id).disabled = value;
   $("chat-profile").disabled = value || !!session;
   renderFiles();
@@ -155,6 +158,7 @@ $("chat-send").onsubmit = async (event) => {
   if (busy) return;
   const question = $("chat-question").value.trim();
   if (!question) return;
+  chatVoice.wait();
   setBusy(true);
   $("chat-error").textContent = "";
   let pending;
@@ -184,13 +188,17 @@ $("chat-send").onsubmit = async (event) => {
     pending = null;
     append("user", question);
     append("assistant", result.answer, result.sources);
+    chatVoice.setAnswer(result.answer, retry.request_id);
     retry = null;
     $("chat-question").value = "";
+    await chatVoice.reply(result.answer);
   } catch (e) {
+    chatVoice.stop();
     if (e.status && !["turn_pending", "conversation_busy"].includes(e.code))
       retry = null;
     if (e.status === 403 || e.status === 404) {
       session = null;
+      chatVoice.setAnswer("", "");
       attachments = [];
       renderFiles();
       accessToken = "";
@@ -206,6 +214,7 @@ $("chat-send").onsubmit = async (event) => {
 };
 $("chat-clear").onclick = async () => {
   if (busy) return;
+  chatVoice.stop();
   try {
     if (session)
       await request(
@@ -219,6 +228,7 @@ $("chat-clear").onclick = async () => {
     attachments = [];
     renderFiles();
     $("chat-messages").replaceChildren();
+    chatVoice.setAnswer("");
     $("chat-error").textContent = "";
     $("chat-profile").disabled = false;
   } catch (e) {
@@ -228,11 +238,51 @@ $("chat-clear").onclick = async () => {
       attachments = [];
       renderFiles();
       $("chat-messages").replaceChildren();
+    chatVoice.setAnswer("");
       $("chat-profile").disabled = false;
     } else report(e);
   }
 };
-$("chat-profile").onchange = renderStarters;
+$("chat-profile").onchange = () => { chatVoice.stop(); renderStarters(); };
+async function voiceSession() {
+  if (!session) {
+    const previous = busy; setBusy(true);
+    try { session = await request(`/api/public/bots/${botId}/conversations`, "POST",
+      { profile: $("chat-profile").value, access_token: accessToken }); }
+    finally { setBusy(previous); }
+  }
+  return session;
+}
+async function paidVoiceRequest(path, body, token, asBlob = false) {
+  const previous = busy;
+  setBusy(true);
+  try { return await request(path, "POST", body, token, false, asBlob); }
+  finally { setBusy(previous); }
+}
+const chatVoice = mountVoicePanel("chat", {
+  getPolicy: async () => {
+    if (session) return request(`/api/public/conversations/${session.id}/voice`, "GET", undefined, session.token);
+    const data = await request(`/api/public/bots/${botId}`, "GET", undefined, accessToken);
+    if (data.locked) throw new Error("Unlock this AskLit before using voice.");
+    return data.voice || { browser: true, paid: false };
+  },
+  onTranscript: async (text, auto) => {
+    $("chat-question").value = [$("chat-question").value.trim(), text].filter(Boolean).join(" ");
+    if (auto) await $("chat-send").onsubmit({ preventDefault() {} });
+    else $("chat-question").focus();
+  },
+  transcribe: async audio => {
+    const current = await voiceSession();
+    const body = new FormData(); body.append("file", audio, "recording.wav");
+    const result = await paidVoiceRequest(`/api/public/conversations/${current.id}/transcribe`, body, current.token);
+    return result.text;
+  },
+  synthesize: async (text, requestId) => {
+    const current = await voiceSession();
+    return paidVoiceRequest(`/api/public/conversations/${current.id}/speech`, { request_id: requestId }, current.token, true);
+  },
+  onError: text => report(new Error(text)),
+});
 (async () => {
   try {
     showMetadata(await request(`/api/public/bots/${botId}`));
@@ -293,6 +343,7 @@ $("chat-file").onchange = async () => {
   const file = $("chat-file").files[0];
   $("chat-file").value = "";
   if (!file || busy) return;
+  chatVoice.stop();
   if (file.size > metadata.uploads.max_bytes || attachments.length >= metadata.uploads.max_files) {
     report(new Error("Choose a file under 5 MB, with at most three files per conversation."));
     return;

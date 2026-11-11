@@ -53,7 +53,7 @@ async function perform(button, fn) {
     }
   }
 }
-async function api(path, method = "GET", data) {
+async function api(path, method = "GET", data, asBlob = false) {
   const headers = {};
   if (me) headers["X-CSRF-Token"] = me.csrf;
   if (data !== undefined && !(data instanceof FormData))
@@ -81,11 +81,13 @@ async function api(path, method = "GET", data) {
     error.status = r.status;
     throw error;
   }
+  if (asBlob) return r.blob();
   return r.headers.get("content-type")?.includes("application/json")
     ? r.json()
     : null;
 }
 function show(section) {
+  if (section !== "editor") previewVoice.stop();
   notice("");
   document.querySelectorAll(".menu").forEach((menu) => (menu.open = false));
   for (const id of ["login", "dashboard", "organization", "editor"])
@@ -279,6 +281,8 @@ async function openBot(id) {
   jobBusy = false;
   history = [];
   previewGeneration++;
+  previewVoice.stop();
+  previewVoice.setAnswer("");
   previewAttachments = [];
   renderPreviewFiles();
   dirty = false;
@@ -305,12 +309,15 @@ async function openBot(id) {
   selectTab("knowledge");
   await refreshResources();
   await loadSharing();
+  try { previewVoice.setPolicy(await api(`/bots/${bot.id}/voice`)); }
+  catch { previewVoice.setPolicy({ browser: true, paid: false }); }
   polling = setInterval(
     () => refreshResources().catch((e) => notice(e.message, true)),
     4000,
   );
 }
 function selectTab(tab) {
+  if (tab !== "chat") previewVoice.stop();
   notice("");
   document
     .querySelectorAll(".tab")
@@ -360,6 +367,8 @@ $("profile").onchange = () => {
   renderProfile();
   history = [];
   previewGeneration++;
+  previewVoice.stop();
+  previewVoice.setAnswer("");
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -464,6 +473,8 @@ bind("add-profile", async () => {
   profileIndex = bot.config.profiles.length - 1;
   history = [];
   previewGeneration++;
+  previewVoice.stop();
+  previewVoice.setAnswer("");
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -477,6 +488,8 @@ bind("remove-profile", async () => {
   if (!confirm("Remove this prompt?")) return;
   history = [];
   previewGeneration++;
+  previewVoice.stop();
+  previewVoice.setAnswer("");
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -693,10 +706,14 @@ function appendMessage(role, text, sources = []) {
   box.scrollIntoView({ block: "nearest" });
   return box;
 }
-$("preview").onsubmit = (e) => {
+$("preview").onsubmit = async (e) => {
   e.preventDefault();
-  if (previewUploadBusy) return;
-  perform(e.submitter, async () => {
+  if (previewUploadBusy) { previewVoice.stop(); return; }
+  previewVoice.wait();
+  previewVoice.setBusy(true);
+  let answered = false;
+  try {
+  await perform(e.submitter, async () => {
     if (history.length >= 24)
       throw new Error("Start a new preview after 12 questions.");
     await save();
@@ -712,6 +729,7 @@ $("preview").onsubmit = (e) => {
         attachments: previewAttachments,
       });
     } catch (error) {
+      previewVoice.stop();
       userMessage.remove();
       throw error;
     } finally {
@@ -723,11 +741,17 @@ $("preview").onsubmit = (e) => {
       { role: "assistant", content: result.answer },
     );
     $("question").value = "";
+    answered = true;
+    previewVoice.setAnswer(result.answer);
+    await previewVoice.reply(result.answer);
   });
+  } finally { if (!answered) previewVoice.stop(); previewVoice.setBusy(false); }
 };
 bind("clear-preview", async () => {
   history = [];
   previewGeneration++;
+  previewVoice.stop();
+  previewVoice.setAnswer("");
   previewAttachments = [];
   renderPreviewFiles();
   $("transcript").replaceChildren();
@@ -1300,6 +1324,8 @@ bind("save-organization-sharing", async () => {
   const value = await api(`/organizations/${$("org").value}/sharing`, "PUT", {
     slug: $("organization-slug").value,
     gallery_enabled: $("organization-gallery").checked,
+    paid_voice_enabled: $("organization-paid-voice").checked,
+    paid_voice_daily_calls: Number($("organization-voice-limit").value),
     allowed_domains: list($("organization-domains").value),
     microsoft_tenants: list($("organization-tenants").value),
   });
@@ -1309,6 +1335,10 @@ bind("save-organization-sharing", async () => {
 function renderOrgSharing(value) {
   $("organization-slug").value = value.slug;
   $("organization-gallery").checked = value.gallery_enabled;
+  $("organization-paid-voice").checked = value.paid_voice_enabled;
+  $("organization-paid-voice").disabled = !value.speech_configured && !value.paid_voice_enabled;
+  $("organization-voice-limit").value = value.paid_voice_daily_calls;
+  $("organization-voice-status").textContent = value.speech_configured ? "" : "The operator has not configured paid speech services.";
   $("organization-domains").value = value.allowed_domains.join("\n");
   $("organization-tenants").value = value.microsoft_tenants.join("\n");
   $("organization-gallery-link").href = value.gallery_url;
@@ -1442,6 +1472,7 @@ $("preview-file").onchange = async () => {
   const file = $("preview-file").files[0];
   $("preview-file").value = "";
   if (!file || previewUploadBusy || $("preview").querySelector(".send-arrow").disabled) return;
+  previewVoice.stop();
   await perform($("preview-attach"), async () => {
     if (file.size > 5 * 1024 * 1024 || previewAttachments.length >= 3)
       throw new Error("Choose a file under 5 MB, with at most three files.");
@@ -1462,3 +1493,26 @@ $("preview-file").onchange = async () => {
     } finally { previewUploadBusy = false; }
   });
 };
+
+const previewVoice = mountVoicePanel("preview", {
+  getPolicy: async () => {
+    if (!bot) throw new Error("Open an AskLit first.");
+    return api(`/bots/${bot.id}/voice`);
+  },
+  onTranscript: async (text, auto) => {
+    $("question").value = [$("question").value.trim(), text].filter(Boolean).join(" ");
+    if (auto) await $("preview").onsubmit({ preventDefault() {}, submitter: $("preview").querySelector(".send-arrow") });
+    else $("question").focus();
+  },
+  transcribe: async audio => {
+    const body = new FormData(); body.append("file", audio, "recording.wav");
+    previewUploadBusy = true;
+    previewVoice.setBusy(true);
+    try {
+      const result = await api(`/bots/${bot.id}/preview/transcribe`, "POST", body);
+      return result.text;
+    } finally { previewUploadBusy = false; previewVoice.setBusy(false); }
+  },
+  synthesize: text => api(`/bots/${bot.id}/preview/speech`, "POST", { text }, true),
+  onError: text => notice(text, true),
+});

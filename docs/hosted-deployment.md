@@ -393,3 +393,48 @@ conversion and indexing workflow; these new converters and limits apply to
 chat and Studio Preview attachments.
 Standalone Streamlit behavior is unchanged; chat attachments and their settings
 are features of the hosted chat and its static frontend.
+
+## Voice
+
+Studio Preview, hosted chat, and the static Next.js client offer browser dictation,
+read-aloud, and optional hands-free conversation. Browser speech is available to
+every organization. It needs a compatible browser and microphone permission on
+HTTPS or localhost; recognition support varies. Browser vendors may process
+speech remotely, so this is not a promise of offline processing. Normal model
+usage still applies. Dictation defaults to review-before-send; hands-free sends
+the transcript automatically and resumes listening after the reply finishes.
+Stop, leaving the page, or hiding the tab releases the microphone. Voice sessions
+pause after ten minutes or twelve automatic turns.
+
+Paid speech is optional and disabled for organizations by default. Configure
+`ASKLIT_SPEECH_BASE_URL`, `ASKLIT_SPEECH_API_KEY`, `ASKLIT_SPEECH_STT_MODEL`, and
+`ASKLIT_SPEECH_TTS_MODEL` for a provider implementing `/audio/transcriptions` and
+`/audio/speech`. `ASKLIT_SPEECH_KEY_HEADER` supports `Authorization` (Bearer),
+`api-key`, or `Ocp-Apim-Subscription-Key`; `ASKLIT_SPEECH_VOICE` defaults to `alloy`.
+Then an organization administrator can enable paid voice in organization settings
+and set its daily speech-request allowance. Users explicitly select Service in
+the voice controls; browser failures never automatically incur paid speech costs.
+
+Each transcription and synthesis counts separately, including provider failures.
+The host allowance defaults to 1,000 requests/day, each organization to 100, each
+conversation to 24, each preview author to 60, and each IP to 30. Counters use the
+shared database (PostgreSQL/Supabase or local SQLite); there are four concurrent
+speech requests per API process. These are request caps, not currency budgets.
+Anonymous public bots can consume the organization allowance. Reverse proxies
+must only trust forwarded client-IP headers from their actual proxy addresses.
+
+Recordings are at most 30 seconds, mono 16 kHz PCM WAV, and 1 MB. The server
+validates and normalizes them before forwarding. Public synthesis only reads an
+existing answer belonging to that conversation, at most 4,000 characters. Audio
+is not stored; transcripts become ordinary conversation text when sent. Stopping
+playback cannot refund an already-started provider request. There are no automatic
+paid retries. Existing chat retention and access controls apply.
+
+Provider model names are deliberately not hardcoded. For example, compatible
+providers may offer mini transcription/TTS models, but check their lifecycle:
+OpenAI currently lists `gpt-4o-mini-transcribe` for retirement February 26, 2027
+and `gpt-4o-mini-tts` January 6, 2027. Realtime API replacements are not drop-in
+models for this HTTP adapter. See the official
+[speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text)
+and [text-to-speech](https://developers.openai.com/api/docs/guides/text-to-speech)
+guides and your provider's own support policy.

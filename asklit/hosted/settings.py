@@ -12,6 +12,13 @@ from uuid import UUID
 class Settings:
     database_url: str = field(repr=False)
     secret_key: str = field(repr=False)
+    speech_base_url: str = "https://api.openai.com/v1"
+    speech_api_key: str = field(default="", repr=False)
+    speech_key_header: str = "Authorization"
+    speech_stt_model: str = ""
+    speech_tts_model: str = ""
+    speech_voice: str = "alloy"
+    speech_daily_calls: int = 1000
     dev_mode: bool = False
     dev_username: str = "dev@asklit.local"
     dev_password: str = field(default="asklit", repr=False)
@@ -39,6 +46,16 @@ class Settings:
     supabase_service_role_key: str = field(default="", repr=False)
 
     def __post_init__(self):
+        speech_url = urlparse(self.speech_base_url)
+        if (not speech_url.hostname or speech_url.username or speech_url.password
+            or speech_url.query or speech_url.fragment
+            or (speech_url.scheme != "https" and not (
+                speech_url.scheme == "http" and speech_url.hostname in {"localhost", "127.0.0.1", "::1"}))):
+            raise ValueError("Speech endpoint must use HTTPS, or HTTP on loopback, without credentials or a query.")
+        if self.speech_key_header not in {"Authorization", "api-key", "Ocp-Apim-Subscription-Key"}:
+            raise ValueError("Unsupported speech API key header.")
+        if self.speech_daily_calls < 1:
+            raise ValueError("Speech allowance must be positive.")
         if self.dev_mode:
             if urlparse(self.base_url).hostname not in {
                 "localhost",
@@ -157,6 +174,13 @@ class Settings:
             }
         return cls(
             database_url=database,
+            speech_base_url=os.getenv("ASKLIT_SPEECH_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+            speech_api_key=os.getenv("ASKLIT_SPEECH_API_KEY", ""),
+            speech_key_header=os.getenv("ASKLIT_SPEECH_KEY_HEADER", "Authorization"),
+            speech_stt_model=os.getenv("ASKLIT_SPEECH_STT_MODEL", ""),
+            speech_tts_model=os.getenv("ASKLIT_SPEECH_TTS_MODEL", ""),
+            speech_voice=os.getenv("ASKLIT_SPEECH_VOICE", "alloy"),
+            speech_daily_calls=int(os.getenv("ASKLIT_SPEECH_DAILY_CALLS", "1000")),
             dev_mode=dev_mode,
             dev_username=os.getenv("ASKLIT_DEV_USERNAME", "dev@asklit.local"),
             dev_password=os.getenv("ASKLIT_DEV_PASSWORD", "asklit"),

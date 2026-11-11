@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from .models import Attachment, Bot, Conversation, RateBucket, Revision, Turn
+from .models import Attachment, Bot, Organization, Conversation, RateBucket, Revision, Turn
 from .runtime import profile_for, selected_documents
 from .schemas import AccessRequest, Message, StartChat
 from .access import (
@@ -21,6 +21,7 @@ from .access import (
     require_access,
 )
 from .security import digest, reserve_calls, token
+from .speech import voice_policy, add_public_speech_routes
 from .uploads import (MAX_BYTES, MAX_CHARS, MAX_FILES, convert_upload, filename_for, reserve_upload, upload_metadata)
 
 
@@ -84,6 +85,7 @@ def public_router(settings, store, runtime):
         return {
             **common,
             "uploads": upload_metadata(config),
+            "voice": voice_policy(db.get(Organization, bot.org_id), settings),
             "title": config["title"],
             "welcome": config["welcome"],
             "footer": config["footer"],
@@ -368,4 +370,5 @@ def public_router(settings, store, runtime):
             turn.status, turn.result = "succeeded", result
             return result
 
+    add_public_speech_routes(router, settings, store, authorized_conversation)
     return router

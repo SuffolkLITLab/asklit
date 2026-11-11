@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from .storage import object_store
+from .speech import add_preview_speech_routes
 from .access import ensure_links, public_path
 from sqlalchemy import func, or_, select
 from asklit.experiments import parse_scenario_csv, scenarios_to_csv
@@ -768,4 +769,5 @@ def management_router(settings, store, runtime):
                 "notice": "The hosted model preset is operator-controlled. Reupload source files; custom endpoints and image branding were not imported.",
             }
 
+    add_preview_speech_routes(router, settings, store)
     return router

@@ -41,6 +41,8 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
     gallery_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_voice_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    paid_voice_daily_calls: Mapped[int] = mapped_column(Integer, default=100)
     allowed_domains: Mapped[list] = mapped_column(JSON, default=list)
     microsoft_tenants: Mapped[list] = mapped_column(JSON, default=list)
     quota_day: Mapped[str] = mapped_column(String(10), default="")

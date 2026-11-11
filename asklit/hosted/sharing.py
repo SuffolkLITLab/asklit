@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from .access import ensure_links, hash_password, password_lookup, public_path
 from .models import BotAlias, Organization, OrganizationAlias, PasswordKey
 from .schemas import BotSharing, NewPassword, OrganizationSharing, PasswordState
+from .speech import voice_policy, speech_configured
 from .security import accessible_bot, audit, login_session, membership
 
 
@@ -20,6 +21,9 @@ def sharing_router(settings, store):
         return {
             "slug": slug,
             "gallery_enabled": org.gallery_enabled,
+            "paid_voice_enabled": org.paid_voice_enabled,
+            "paid_voice_daily_calls": org.paid_voice_daily_calls,
+            "speech_configured": speech_configured(settings),
             "allowed_domains": org.allowed_domains,
             "microsoft_tenants": org.microsoft_tenants,
             "gallery_url": settings.base_url + "/" + slug,
@@ -83,6 +87,12 @@ def sharing_router(settings, store):
                     db.add(OrganizationAlias(slug=body.slug, org_id=org_id))
                 org.slug = body.slug
                 org.gallery_enabled = body.gallery_enabled
+                if body.paid_voice_enabled and not org.paid_voice_enabled and not speech_configured(settings):
+                    raise HTTPException(422, "The operator must configure paid speech services first.")
+                if "paid_voice_enabled" in body.model_fields_set:
+                    org.paid_voice_enabled = body.paid_voice_enabled
+                if "paid_voice_daily_calls" in body.model_fields_set:
+                    org.paid_voice_daily_calls = body.paid_voice_daily_calls
                 org.allowed_domains = domains
                 org.microsoft_tenants = tenants
                 audit(db, session.user_id, org_id, "organization.sharing", org_id)
@@ -97,6 +107,13 @@ def sharing_router(settings, store):
         with store.transaction() as db:
             session = login_session(db, request)
             return bot_view(db, accessible_bot(db, bot_id, session.user_id))
+
+    @router.get("/bots/{bot_id}/voice")
+    def bot_voice(bot_id: str, request: Request):
+        with store.transaction() as db:
+            session = login_session(db, request)
+            bot = accessible_bot(db, bot_id, session.user_id)
+            return voice_policy(db.get(Organization, bot.org_id), settings)
 
     @router.put("/bots/{bot_id}/sharing")
     def put_bot(bot_id: str, body: BotSharing, request: Request):

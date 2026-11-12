@@ -76,7 +76,7 @@ def sharing_router(settings, store):
                 )
                 if re.fullmatch(r"org-[a-f0-9]{32}", body.slug) and body.slug != "org-" + org_id:
                     raise HTTPException(422, "Choose a name outside the reserved org-ID format.")
-                if body.slug in {"api", "auth", "static", "gallery", "health", "docs", "redoc", "openapi", "o", "a"}:
+                if body.slug in {"api", "auth", "static", "gallery", "health", "docs", "redoc", "openapi", "o", "a", "privacy", "terms"}:
                     raise HTTPException(422, "That organization prefix is reserved.")
                 alias = db.get(OrganizationAlias, body.slug)
                 if alias and alias.org_id != org_id:

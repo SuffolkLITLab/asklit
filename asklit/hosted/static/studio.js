@@ -90,7 +90,7 @@ function show(section) {
   if (section !== "editor") previewVoice.stop();
   notice("");
   document.querySelectorAll(".menu").forEach((menu) => (menu.open = false));
-  for (const id of ["login", "approval", "service-admin", "dashboard", "organization", "editor"])
+  for (const id of ["login", "invitation", "approval", "service-admin", "dashboard", "organization", "editor"])
     $(id).hidden = id !== section;
 }
 function markDirty() {
@@ -1430,28 +1430,40 @@ bind("invite", async () => {
   });
   $("invite-link").textContent = r.url;
 });
+async function showInvitation(raw) {
+  show("invitation");
+  $("invitation-error").textContent = "";
+  try {
+    const value = await api("/invitations/inspect", "POST", {token: raw});
+    $("invitation-title").textContent = `Join ${value.organization}`;
+    $("invitation-description").textContent = `You’re invited as ${value.role === "member" ? "an author" : "an " + value.role}${value.email ? " using " + value.email : ""}. ${value.hosting_approved ? "Hosting approval is included." : "Hosting requires separate approval."}`;
+    $("invitation-email").value = value.email || "";
+    $("invitation-email").readOnly = !!value.email;
+    $("invitation-register").hidden = !!me || !value.local_signup;
+    $("invitation-accept").hidden = !me;
+    $("invitation-sign-in").hidden = !!me;
+  } catch (error) {
+    if (error.status === 404) sessionStorage.removeItem("asklit-invite");
+    $("invitation-description").textContent = "Ask the person who invited you for a new link."
+    $("invitation-error").textContent = error.message;
+    $("invitation-register").hidden = true;$("invitation-accept").hidden = true;
+  }
+}
 async function init() {
   const hash = new URLSearchParams(location.hash.slice(1));
   if (hash.has("invite")) {
     sessionStorage.setItem("asklit-invite", hash.get("invite"));
     historyReplace();
   }
+  const invite = sessionStorage.getItem("asklit-invite");
   try {
     await refreshMe();
     if (me.must_change_password) { show("dashboard"); accountDialog("own"); return; }
+    if (invite) { await showInvitation(invite); return; }
     if (!me.author_approved) { show("approval"); return; }
-    const invite = sessionStorage.getItem("asklit-invite");
-    if (invite) {
-      if (confirm("Join the organization using this invitation?")) {
-        await api("/invitations/accept", "POST", { token: invite });
-        await refreshMe();
-        notice("Organization joined.");
-      }
-      sessionStorage.removeItem("asklit-invite");
-    }
     await dashboard();
   } catch (e) {
-    if (e.status === 401) show("login");
+    if (e.status === 401) { me = null;if (invite) await showInvitation(invite);else show("login"); }
     else notice(e.message, true);
   }
 }
@@ -1650,7 +1662,7 @@ async function approvalAccounts() {
   $("accounts-prev").disabled=accountPage===1;
   $("accounts-next").disabled=!data.has_more;
 }
-bind("operator", async () => { show("service-admin");await approvalAccounts();await operatorUsage(); });
+bind("operator", async () => { show("service-admin");await approvalAccounts();await adminOrganizations();await operatorUsage(); });
 bind("accounts-prev", async () => { accountPage=Math.max(1,accountPage-1);await approvalAccounts(); });
 bind("accounts-next", async () => { accountPage++;await approvalAccounts(); });
 bind("refresh-operator-usage", operatorUsage);
@@ -1676,3 +1688,92 @@ $("delete-approval-form").onsubmit = async event => {
   } catch (error) { $("delete-approval-error").textContent = error.message; }
   finally { button.disabled = false; }
 };
+
+let adminOrgPage = 1, adminOrgGeneration = 0, adminSchool = null;
+async function adminOrganizations() {
+  const generation = ++adminOrgGeneration;
+  const params = new URLSearchParams({days: $("admin-org-days").value,q: $("admin-org-query").value.trim(),page: String(adminOrgPage)});
+  const data = await api(`/operator/organizations?${params}`);
+  if (generation !== adminOrgGeneration) return;
+  const target = $("admin-organizations");target.replaceChildren();
+  if (!data.organizations.length) target.append(el("p", "No matching organizations.", "muted"));
+  const table = el("table"), head = el("tr"), body = el("tbody");
+  for (const label of ["Organization", "Members", "AI requests", "Estimated AI cost", ""]) head.append(el("th", label));
+  const thead = el("thead");thead.append(head);table.append(thead);
+  for (const org of data.organizations) {
+    const row = el("tr");row.append(el("td", `${org.name}${org.slug ? " /" + org.slug + "/" : ""}`),el("td", `${org.members} (${org.approved_members} approved)`),el("td", String(org.requests)),el("td", `$${org.estimated_cost_usd.toFixed(4)}${org.unknown_cost_requests ? " + unknown costs" : ""}`));
+    const controls = el("td");controls.append(action("Members, invitations & usage", () => openAdminSchool(org)));row.append(controls);body.append(row);
+  }
+  table.append(body);const wrap=el("div",undefined,"usage-table");wrap.append(table);target.append(wrap);
+  $("admin-org-prev").disabled=adminOrgPage===1;$("admin-org-next").disabled=!data.has_more;
+}
+async function refreshAdminSchool() {
+  const org = adminSchool;
+  const [members, invites, usage] = await Promise.all([api(`/operator/organizations/${org.id}/members`),api(`/operator/organizations/${org.id}/invitations`),api(`/operator/organizations/${org.id}/usage?days=${$("admin-org-days").value}`)]);
+  if (adminSchool?.id !== org.id) return;
+  $("admin-school-members").replaceChildren();
+  if (!members.length) $("admin-school-members").append(el("p", "No members yet. Invite the school’s first author or administrator.", "muted"));
+  for (const member of members) $("admin-school-members").append(el("p", `${member.name} · ${member.email} · ${member.role} · ${member.approved ? "Approved" : "Pending approval"}`));
+  $("admin-school-invitations").replaceChildren();
+  if (!invites.length) $("admin-school-invitations").append(el("p", "No pending invitations.", "muted"));
+  for (const invite of invites) {
+    const row=el("div",undefined,"row");row.append(el("span", `${invite.email || "Anyone with the link"} · ${invite.role} · ${invite.hosting_approved ? "hosting approved" : "hosting approval required"} · expires ${new Date(invite.expires*1000).toLocaleDateString()}`),action("Revoke",async () => {await api(`/operator/organizations/${org.id}/invitations/${invite.id}`,"DELETE");await refreshAdminSchool();}));$("admin-school-invitations").append(row);
+  }
+  renderUsage($("admin-school-usage"), usage);
+}
+async function openAdminSchool(org) {
+  adminSchool=org;$("admin-school-title").textContent=org.name;
+  $("admin-school-error").textContent="";$("admin-school-link-label").hidden=true;$("admin-school-copy").hidden=true;
+  $("admin-school-invite").reset();$("admin-school-dialog").showModal();
+  await refreshAdminSchool();
+}
+bind("admin-school-close", () => $("admin-school-dialog").close());
+bind("admin-school-refresh", refreshAdminSchool);
+bind("admin-school-copy", async () => {await navigator.clipboard.writeText($("admin-school-link").value);$("admin-school-copy").textContent="Copied";});
+$("admin-school-invite").onsubmit = async event => {
+  event.preventDefault();event.submitter.disabled=true;
+  try {
+    const data=await api(`/operator/organizations/${adminSchool.id}/invitations`,"POST",{email:$("admin-school-email").value,role:$("admin-school-role").value});
+    $("admin-school-link").value=data.url;$("admin-school-link-label").hidden=false;$("admin-school-copy").hidden=false;$("admin-school-copy").textContent="Copy link";
+    $("admin-school-error").textContent="Share this link with the invited person. No email has been sent.";
+    await refreshAdminSchool();
+  } catch(error) {$("admin-school-error").textContent=error.message;}
+  finally {event.submitter.disabled=false;}
+};
+$("admin-org-search").onsubmit=event=>{event.preventDefault();adminOrgPage=1;perform(event.submitter,adminOrganizations);};
+$("admin-org-days").onchange=()=>perform(null,adminOrganizations);
+bind("admin-org-prev",async()=>{adminOrgPage=Math.max(1,adminOrgPage-1);await adminOrganizations();});
+bind("admin-org-next",async()=>{adminOrgPage++;await adminOrganizations();});
+bind("admin-new-org",()=>{$("admin-new-org-form").reset();$("admin-new-org-error").textContent="";delete $("admin-org-slug").dataset.edited;$("admin-new-org-dialog").showModal();});
+$("admin-org-slug").oninput=()=>{$("admin-org-slug").dataset.edited="true";};
+$("admin-org-name").oninput=()=>{if(!$("admin-org-slug").dataset.edited)$("admin-org-slug").value=$("admin-org-name").value.normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80).replace(/-$/g,"");};
+bind("admin-new-org-cancel",()=>$("admin-new-org-dialog").close());
+$("admin-new-org-form").onsubmit=async event=>{
+  event.preventDefault();event.submitter.disabled=true;
+  try {const org=await api("/operator/organizations","POST",{name:$("admin-org-name").value,slug:$("admin-org-slug").value});$("admin-new-org-dialog").close();await adminOrganizations();await openAdminSchool(org);}
+  catch(error){$("admin-new-org-error").textContent=error.message;}
+  finally{event.submitter.disabled=false;}
+};
+$("invitation-sign-in").onclick=()=>show("login");
+async function finishInvitation(result) {
+  sessionStorage.removeItem("asklit-invite");await refreshMe();
+  $("org").value=result.org_id;
+  if (!me.author_approved) show("approval");else await dashboard();
+}
+$("invitation-accept").onclick=async()=>{
+  $("invitation-accept").disabled=true;
+  try {await finishInvitation(await api("/invitations/accept","POST",{token:sessionStorage.getItem("asklit-invite")}));}
+  catch(error){$("invitation-error").textContent=error.message;}
+  finally{$("invitation-accept").disabled=false;}
+};
+$("invitation-register").onsubmit=async event=>{
+  event.preventDefault();event.submitter.disabled=true;
+  try {await finishInvitation(await api("/invitations/register","POST",{token:sessionStorage.getItem("asklit-invite"),name:$("invitation-name").value,email:$("invitation-email").value,password:$("invitation-password").value,csrf:document.querySelector('input[name="csrf"]').value}));$("invitation-password").value="";}
+  catch(error){$("invitation-error").textContent=error.message;}
+  finally{event.submitter.disabled=false;}
+};
+
+$("invitation-dismiss").onclick=()=>perform(null,async()=>{
+  sessionStorage.removeItem("asklit-invite");
+  if (!me) show("login");else if (!me.author_approved) show("approval");else await dashboard();
+});

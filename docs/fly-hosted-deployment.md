@@ -186,7 +186,7 @@ Fees and allowances are agreed separately: this release does not automatically
 charge users or provide a payment processor.
 
 The existing local lab administrator has service-operator access. From Studio,
-open **Service administration** to approve or suspend accounts and review service
+open **Admin** to approve or suspend accounts and review service
 usage. Organization owners/admins use **Workspace → Members & settings → Usage &
 cost** for their own organization. Neither organization ownership nor creating a
 local account grants approval authority. Grant another trusted service operator
@@ -243,7 +243,7 @@ the exact $100 threshold because it reserves a full request's potential cost.
 
 Budget-denied requests return HTTP 429 with code `monthly_ai_budget_exceeded`
 and a visible message explaining the AI spending allowance. Evaluation jobs stop
-with that same reference instead of a generic model error. Service administration
+with that same reference instead of a generic model error. Admin
 shows the current month, committed allowance (including holds), and remainder.
 Operators should check this panel first when users report that reference. Raising
 the app limit requires changing the deployment setting; do not delete usage

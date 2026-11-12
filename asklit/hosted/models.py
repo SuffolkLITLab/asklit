@@ -100,6 +100,8 @@ class Invitation(Base):
     role: Mapped[str] = mapped_column(String(20))
     expires: Mapped[float] = mapped_column(Float)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+    recipient_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    grants_hosting: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Bot(Base):

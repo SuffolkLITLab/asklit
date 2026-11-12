@@ -481,3 +481,22 @@ have role changes made through their organization's member settings, rather than
 being invited again. Invalid invitation screens offer a way back to sign-in or
 the dashboard. **Refresh** in the organization dialog updates the member roster,
 pending invitations, and usage after someone joins.
+
+### Closing or deleting an organization
+
+In **Admin → Organizations**, choose **Archive** to hide a school from active
+lists and pause its hosted AskLits, invitations, and new work. Existing work may
+finish. Use the **Archived organizations** filter and **Restore** to reopen it;
+queued tasks canceled by archiving must be started again.
+
+Archived organizations offer **Delete permanently**. The confirmation explains
+the loss of AskLits, knowledge bases, conversations, invitations, and per-school
+usage history and requires the organization's name. Managed local logins are
+removed; shared OAuth accounts remain. Deletion is blocked while work is running
+or when managed local logins belong to platform administrators or are used by
+another school. Anonymous monthly spending totals remain so deletion cannot reset
+the service's AI budget. A minimal service audit records the deletion.
+
+Private document and export keys are queued atomically with deletion. The worker
+removes these files in bounded batches outside database locks, retrying storage
+failures on later passes. Keep the worker running to complete cleanup.

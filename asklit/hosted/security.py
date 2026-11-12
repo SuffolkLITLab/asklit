@@ -44,6 +44,9 @@ def login_session(db, request, mutation=False):
 
 
 def membership(db, org_id, user_id, admin=False):
+    org = db.get(Organization, org_id)
+    if not org or org.archived:
+        raise HTTPException(404, "Organization not found.")
     member = db.get(Membership, (org_id, user_id))
     if not member or (admin and member.role not in {"owner", "admin"}):
         raise HTTPException(404, "Organization not found.")
@@ -72,6 +75,8 @@ def reserve_calls(db, org_id, settings, count=1, audience="authoring"):
     org = db.scalar(
         select(Organization).where(Organization.id == org_id).with_for_update()
     )
+    if not org or org.archived:
+        raise HTTPException(403, "This organization is archived.")
     day = datetime.now(timezone.utc).date().isoformat()
     if org.quota_day != day:
         org.quota_day, org.calls = day, 0

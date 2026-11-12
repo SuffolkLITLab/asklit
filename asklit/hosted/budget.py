@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import func, select, case
-from .models import RateBucket, UsageEvent
+from .models import RateBucket, UsageEvent, DeletedOrganizationSpend
 
 
 class BillingError(HTTPException):
@@ -31,7 +31,8 @@ def month_start():
 
 def committed_cost(db, start):
     # Unknown historic calls predate reservations: conservatively retain $1 each.
-    return float(db.scalar(select(func.coalesce(func.sum(func.coalesce(
+    retained = db.get(DeletedOrganizationSpend, start.strftime("%Y-%m"))
+    return (retained.amount if retained else 0) + float(db.scalar(select(func.coalesce(func.sum(func.coalesce(
         UsageEvent.estimated_cost_usd, UsageEvent.budget_reserved_usd, 1.0
     )), 0)).where(UsageEvent.created >= start.timestamp())) or 0)
 
@@ -39,6 +40,7 @@ def committed_cost(db, start):
 def budget_report(db, settings):
     start = month_start()
     used = committed_cost(db, start)
+    retained = db.get(DeletedOrganizationSpend, start.strftime("%Y-%m"))
     limit = settings.monthly_ai_budget_usd
     known, held, legacy = db.execute(select(
         func.coalesce(func.sum(UsageEvent.estimated_cost_usd), 0),
@@ -46,9 +48,10 @@ def budget_report(db, settings):
         func.count().filter(UsageEvent.estimated_cost_usd.is_(None), UsageEvent.budget_reserved_usd.is_(None)),
     ).where(UsageEvent.created >= start.timestamp())).one()
     return {'month': start.strftime('%Y-%m'), 'limit_usd': limit,
+            'deleted_organization_spend_usd': retained.amount if retained else 0,
             'estimated_spend_usd': float(known), 'held_usd': float(held), 'legacy_unknown_calls': legacy,
             'committed_usd': used, 'remaining_usd': max(0, limit-used) if limit is not None else None,
-            'note': 'UTC calendar month. Includes conservative reservations for pending or unknown-cost calls; excludes hosting fees and calls outside AskLit.'}
+            'note': 'Includes anonymous spending totals from deleted organizations. UTC calendar month. Includes conservative reservations for pending or unknown-cost calls; excludes hosting fees and calls outside AskLit.'}
 
 
 def reserve_budget(db, settings, model, messages):

@@ -59,11 +59,24 @@ class Identity(Base):
     hosted_domain: Mapped[str] = mapped_column(String(255), default="")
 
 
+class PendingObjectDeletion(Base):
+    __tablename__ = "hosted_pending_object_deletions"
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+
+class DeletedOrganizationSpend(Base):
+    """Anonymous monthly totals retained after organization history is erased."""
+    __tablename__ = "hosted_deleted_organization_spend"
+    month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    amount: Mapped[float] = mapped_column(Float, default=0)
+
+
 class Organization(Base):
     __tablename__ = "hosted_organizations"
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False)
     gallery_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     local_accounts_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     paid_voice_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -37,7 +37,7 @@ def valid_invitation(db, raw, lock=False):
     stmt=select(Invitation).where(Invitation.token_hash==digest(raw))
     if lock:stmt=stmt.with_for_update()
     invite=db.scalar(stmt)
-    if not invite or invite.used or invite.expires<=time.time():
+    if not invite or invite.used or invite.expires<=time.time() or db.get(Organization,invite.org_id).archived:
         raise HTTPException(404,'Invitation is invalid, expired, or already used.')
     return invite
 

@@ -22,6 +22,9 @@ class FilesystemStorage:
     def __init__(self, root):
         self.root = root
 
+    def delete(self, key):
+        (self.root / checked_key(key)).unlink(missing_ok=True)
+
     def put_bytes(self, key, data):
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / checked_key(key)).write_bytes(data)
@@ -61,6 +64,12 @@ class SupabaseStorage:
             raise RuntimeError("Cannot access the configured Supabase storage bucket.")
         if response.json().get("public") is not False:
             raise RuntimeError("AskLit requires a private Supabase bucket.")
+
+    def delete(self, key):
+        with httpx.Client(headers=self.headers, timeout=30) as client:
+            response = client.request("DELETE", f"{self.base}/object/{self.bucket}", json={"prefixes": [checked_key(key)]})
+            if response.status_code not in {200, 204}:
+                raise RuntimeError("Stored file deletion failed. Retry permanent deletion.")
 
     def put_bytes(self, key, data):
         with httpx.Client(headers=self.headers, timeout=120) as client:
@@ -146,3 +155,20 @@ def object_store(settings):
     if settings.storage_backend == "supabase":
         return SupabaseStorage(settings)
     return FilesystemStorage(settings.storage)
+
+
+def cleanup_deleted_objects(settings, store):
+    """Retry a bounded batch without holding database or global spending locks."""
+    from sqlalchemy import select, delete
+    from .models import PendingObjectDeletion
+    with store.transaction() as db:
+        keys = list(db.scalars(select(PendingObjectDeletion.key).limit(20)))
+    storage = object_store(settings)
+    for key in keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            # Keep the key for the next worker pass; never log storage credentials.
+            return
+        with store.transaction() as db:
+            db.execute(delete(PendingObjectDeletion).where(PendingObjectDeletion.key == key))

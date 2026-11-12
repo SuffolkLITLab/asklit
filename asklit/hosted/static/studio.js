@@ -268,6 +268,8 @@ async function refreshMe() {
   $("operator").hidden = !me.platform_admin;
   $("change-password").hidden = !me.local_account;
   $("new-org").hidden = me.local_account;
+  $("new-bot").disabled = !me.organizations.length;
+  $("archived-workspace-notice").hidden = !!me.organizations.length || !me.archived_organizations?.length;
   $("identity").textContent = me.name;
   $("logout").hidden = false;
   $("org").replaceChildren();
@@ -1612,6 +1614,7 @@ function renderUsage(target, report) {
     const b = report.budget;
     target.append(el("p", `$${b.committed_usd.toFixed(2)} of $${b.limit_usd.toFixed(2)} monthly AI allowance committed · $${b.remaining_usd.toFixed(2)} remaining`));
     target.append(el("p", `$${b.estimated_spend_usd.toFixed(2)} estimated spend · $${b.held_usd.toFixed(2)} reserved for pending or unknown-cost requests · ${b.legacy_unknown_calls} earlier unknown-cost calls counted at $1 each`, "muted"));
+    if(b.deleted_organization_spend_usd) target.append(el("p", `$${b.deleted_organization_spend_usd.toFixed(2)} retained from deleted organizations`, "muted"));
     target.append(el("p", b.note, "muted"));
   }
   target.append(el("p", `${t.requests.toLocaleString()} model calls · ${t.succeeded.toLocaleString()} succeeded · ${t.failed.toLocaleString()} failed · ${t.unfinished.toLocaleString()} unfinished`));
@@ -1692,9 +1695,10 @@ $("delete-approval-form").onsubmit = async event => {
 let adminOrgPage = 1, adminOrgGeneration = 0, adminSchool = null;
 async function adminOrganizations() {
   const generation = ++adminOrgGeneration;
-  const params = new URLSearchParams({days: $("admin-org-days").value,q: $("admin-org-query").value.trim(),page: String(adminOrgPage)});
+  const params = new URLSearchParams({status: $("admin-org-status").value,days: $("admin-org-days").value,q: $("admin-org-query").value.trim(),page: String(adminOrgPage)});
   const data = await api(`/operator/organizations?${params}`);
   if (generation !== adminOrgGeneration) return;
+  if(!data.organizations.length && adminOrgPage > 1){adminOrgPage--;return adminOrganizations();}
   const target = $("admin-organizations");target.replaceChildren();
   if (!data.organizations.length) target.append(el("p", "No matching organizations.", "muted"));
   const table = el("table"), head = el("tr"), body = el("tbody");
@@ -1702,7 +1706,7 @@ async function adminOrganizations() {
   const thead = el("thead");thead.append(head);table.append(thead);
   for (const org of data.organizations) {
     const row = el("tr");row.append(el("td", `${org.name}${org.slug ? " /" + org.slug + "/" : ""}`),el("td", `${org.members} (${org.approved_members} approved)`),el("td", String(org.requests)),el("td", `$${org.estimated_cost_usd.toFixed(4)}${org.unknown_cost_requests ? " + unknown costs" : ""}`));
-    const controls = el("td");controls.append(action("Members, invitations & usage", () => openAdminSchool(org)));row.append(controls);body.append(row);
+    const controls = el("td");controls.append(action("Members, invitations & usage", () => openAdminSchool(org)));controls.append(action(org.archived ? "Restore" : "Archive", () => orgLifecycle(org, org.archived ? "restore" : "archive")));if(org.archived) controls.append(action("Delete permanently", () => orgLifecycle(org, "delete")));row.append(controls);body.append(row);
   }
   table.append(body);const wrap=el("div",undefined,"usage-table");wrap.append(table);target.append(wrap);
   $("admin-org-prev").disabled=adminOrgPage===1;$("admin-org-next").disabled=!data.has_more;
@@ -1777,3 +1781,27 @@ $("invitation-dismiss").onclick=()=>perform(null,async()=>{
   sessionStorage.removeItem("asklit-invite");
   if (!me) show("login");else if (!me.author_approved) show("approval");else await dashboard();
 });
+
+let lifecycleOrg = null, lifecycleAction = null;
+function orgLifecycle(org, kind) {
+  lifecycleOrg=org;lifecycleAction=kind;
+  $("org-lifecycle-title").textContent=`${kind === "delete" ? "Delete" : kind === "archive" ? "Archive" : "Restore"} ${org.name}?`;
+  $("org-lifecycle-description").textContent=kind === "delete"
+    ? "Permanently delete this organization and its AskLits, knowledge bases, files, conversations, invitations, and usage history. Local logins managed by this organization will be removed; shared Google and Microsoft accounts remain. This cannot be undone. Stored file cleanup runs in the background. Anonymous monthly spending totals remain for budget control."
+    : kind === "archive" ? "Hide this organization from active lists and pause its hosted AskLits and new work. Records remain, and you can restore it later. Work already in progress may finish."
+    : "Return this organization to active lists and resume access to its published AskLits. Canceled tasks must be started again.";
+  $("org-lifecycle-confirm-label").hidden=kind!=="delete";
+  $("org-lifecycle-confirm").required=kind==="delete";$("org-lifecycle-confirm").value="";
+  $("org-lifecycle-error").textContent="";
+  $("org-lifecycle-submit").textContent=kind === "delete" ? "Delete permanently" : kind === "archive" ? "Archive" : "Restore";
+  $("org-lifecycle-dialog").showModal();
+}
+bind("org-lifecycle-cancel",()=>$("org-lifecycle-dialog").close());
+$("admin-org-status").onchange=()=>{adminOrgPage=1;perform(null,adminOrganizations);};
+$("org-lifecycle-form").onsubmit=async event=>{
+  event.preventDefault();const button=$("org-lifecycle-submit");button.disabled=true;
+  try {
+    await api(`/operator/organizations/${lifecycleOrg.id}`,lifecycleAction==="delete" ? "DELETE" : "PATCH",lifecycleAction==="delete" ? {confirmation:$("org-lifecycle-confirm").value} : {archived:lifecycleAction==="archive"});
+    $("org-lifecycle-dialog").close();await refreshMe();await adminOrganizations();
+  } catch(error) {$("org-lifecycle-error").textContent=error.message;} finally {button.disabled=false;}
+};

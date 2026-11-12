@@ -148,6 +148,8 @@ def create_app(settings=None, store=None, runtime=None):
     from .admin_organizations import admin_organizations_router
     from .invitations import invitation_router
     app.include_router(admin_organizations_router(settings, store))
+    from .organization_lifecycle import lifecycle_router
+    app.include_router(lifecycle_router(settings, store))
     app.include_router(invitation_router(settings, store))
     app.include_router(auth_router(settings, store))
     app.include_router(local_account_router(settings, store))

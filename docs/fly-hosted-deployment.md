@@ -15,7 +15,10 @@ volume is required. Model caches are disposable. Hosted migrations enforce RLS
 and remove browser-role grants on AskLit tables.
 
 Merging a pull request into `main` triggers `.github/workflows/deploy-fly.yml`.
-It deploys both the existing scaffolder and Studio. The Studio job stages
+It deploys both the existing scaffolder and Studio. Studio deployment requires
+the hosted test suite to pass first; pull requests run these tests without
+production credentials. Deployment jobs only run from `main`, including manual
+runs. The Studio job stages
 `docs/bedrock-models.json` as `ASKLIT_MODELS_JSON`, then deploys `fly.hosted.toml`,
 including migrations, the API, and the worker. Other production secrets remain
 configured in Fly. Concurrent releases are serialized. `workflow_dispatch`

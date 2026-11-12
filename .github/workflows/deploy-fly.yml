@@ -5,6 +5,8 @@ on:
     branches:
       - main
   workflow_dispatch:
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -14,7 +16,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test-hosted:
+    name: Test hosted service
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements-hosted.txt pytest
+      - name: Test hosted boundaries and accounting without provider calls
+        run: python -m pytest tests/hosted -q
+        env:
+          PYTHONPATH: .
+
   deploy:
+    if: github.ref == 'refs/heads/main'
     name: Deploy asklit-scaffold-lab
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
 
       - name: Deploy and wait for health checks
         run: flyctl deploy --remote-only --app asklit-scaffold-lab
@@ -30,19 +52,22 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
   deploy-studio:
+    if: github.ref == 'refs/heads/main'
+    needs: test-hosted
     name: Deploy AskLit Studio
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      FLY_API_TOKEN: ${{ secrets.FLY_STUDIO_API_TOKEN }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@98172f70657cb3e15db199af139be99bd3e61200
 
       - name: Stage hosted model presets
+        shell: bash
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_STUDIO_API_TOKEN }}
         run: |
           python - <<'PY' | flyctl secrets import --stage --app asklit-studio
           import json
@@ -52,4 +77,6 @@ jobs:
           PY
 
       - name: Deploy Studio and worker with database migrations and health checks
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_STUDIO_API_TOKEN }}
         run: flyctl deploy --config fly.hosted.toml --remote-only --ha=false

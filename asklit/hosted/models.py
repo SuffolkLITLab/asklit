@@ -26,6 +26,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(200))
     author_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class UsageEvent(Base):

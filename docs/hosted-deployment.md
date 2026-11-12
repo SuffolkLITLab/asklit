@@ -438,3 +438,14 @@ models for this HTTP adapter. See the official
 [speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text)
 and [text-to-speech](https://developers.openai.com/api/docs/guides/text-to-speech)
 guides and your provider's own support policy.
+
+### Search and delete approval requests
+
+Service operators can search **Service administration → Hosting approvals** by
+name, email, or account ID, and filter pending, approved, or deleted requests.
+Search is case-insensitive and applies before pagination. **Delete request** uses
+an in-app confirmation and removes a pending request from the active list; it
+does not delete the account, usage records, or organization history, and it does
+not approve hosting. Deleted requests stay deleted across sign-ins. Use
+**Deleted requests → Restore request** to return one to the queue. Approved
+accounts and platform operators cannot be deleted through this request action.

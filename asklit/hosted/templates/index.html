@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AskLit Studio</title><link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/studio.css">
-  <script src="/static/voice.js" defer></script><script src="/static/voice-ui.js" defer></script><script src="/static/studio.js" defer></script>
+  <script src="/static/voice.js" defer></script><script src="/static/voice-ui.js" defer></script>
+
+
+<script src="/static/studio.js" defer></script>
 </head>
 <body>
 <header><a href="/" class="brand"><img src="/static/brand/lit-lab.svg" alt="Suffolk LIT Lab"><span class="product">AskLit <span>Studio</span></span></a><a href="/gallery" class="quiet button" target="_blank" rel="noopener">Gallery</a><button id="operator" class="quiet" hidden>Service administration</button><span id="identity"></span><button id="change-password" class="quiet" hidden>Change password</button><button id="logout" class="quiet" hidden>Sign out</button></header>
@@ -35,7 +38,7 @@
     {% endif %}
   </section>
   <section id="approval" hidden class="sign-in"><h1>Hosting approval required</h1><p>Hosting an AskLit on suffolklitlab.org requires approval and a small fee to recover hosting and AI usage costs.</p><p>Email <a href="mailto:litlab@suffolk.edu?subject=AskLit%20hosting%20approval">litlab@suffolk.edu</a> with your account email and what you plan to host. We’ll discuss the fee and usage allowance before enabling authoring.</p><button id="check-approval" class="secondary">Check approval status</button></section>
-  <section id="service-admin" hidden><button class="quiet back">← Your AskLits</button><h1>Service administration</h1><h2>Hosting approvals</h2><div id="approval-accounts"></div><div class="actions"><button id="accounts-prev" class="secondary">Previous</button><button id="accounts-next" class="secondary">Next</button></div><h2>Service usage</h2><label>Period<select id="operator-usage-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="refresh-operator-usage" class="secondary">Refresh usage</button><div id="operator-usage"></div></section>
+  <section id="service-admin" hidden><button class="quiet back">← Your AskLits</button><h1>Service administration</h1><h2>Hosting approvals</h2><form id="approval-search" class="actions"><label>Search accounts<input id="approval-query" type="search" maxlength="320" placeholder="Name, email, or account ID"></label><label>Show<select id="approval-status"><option value="all">All active requests and accounts</option><option value="pending">Pending approval</option><option value="approved">Approved accounts</option><option value="deleted">Deleted requests</option></select></label><button type="submit" class="secondary">Search</button></form><div id="approval-accounts"></div><div class="actions"><button id="accounts-prev" class="secondary">Previous</button><button id="accounts-next" class="secondary">Next</button></div><h2>Service usage</h2><label>Period<select id="operator-usage-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option></select></label><button id="refresh-operator-usage" class="secondary">Refresh usage</button><div id="operator-usage"></div></section>
   <section id="dashboard" hidden>
     <div class="heading"><h1>Your AskLits</h1><button id="new-bot">New AskLit</button></div>
     <div class="toolbar workspace-bar"><label class="sr-only" for="org">Organization</label><select id="org"></select>
@@ -185,5 +188,12 @@
     <div class="actions dialog-actions"><button id="name-cancel" type="button" class="secondary">Cancel</button><button id="name-submit" type="submit">Create AskLit</button></div>
   </form>
 </dialog>
+<dialog id="delete-approval-dialog" aria-labelledby="delete-approval-title"><form id="delete-approval-form">
+  <h2 id="delete-approval-title">Delete approval request?</h2>
+  <p id="delete-approval-person"></p>
+  <p>The account stays unapproved. You can restore the request under Deleted requests.</p>
+  <p id="delete-approval-error" role="alert"></p>
+  <div class="actions"><button id="delete-approval-cancel" type="button" class="secondary">Cancel</button><button type="submit">Delete request</button></div>
+</form></dialog>
 {% include 'legal_footer.html' %}
 </body></html>

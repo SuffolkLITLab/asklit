@@ -1592,7 +1592,7 @@ function renderLocalAccounts(accounts, orgId) {
 
 $("local-account-dialog").addEventListener("cancel", event => { if (me?.must_change_password) event.preventDefault(); });
 
-let accountPage = 1;
+let accountPage = 1, approvalGeneration = 0, deleteApprovalId = null;
 function renderUsage(target, report) {
   target.replaceChildren();
   const t = report.totals;
@@ -1620,14 +1620,30 @@ function renderUsage(target, report) {
 }
 async function operatorUsage() { renderUsage($("operator-usage"), await api(`/operator/usage?days=${$("operator-usage-days").value}`)); }
 async function approvalAccounts() {
-  const data=await api(`/operator/accounts?page=${accountPage}`);
+  const generation = ++approvalGeneration;
+  const query = new URLSearchParams({page: String(accountPage), q: $("approval-query").value.trim(), status: $("approval-status").value});
+  const data=await api(`/operator/accounts?${query}`);
+  if (generation !== approvalGeneration) return;
+  if (!data.accounts.length && accountPage > 1) { accountPage--;return approvalAccounts(); }
   $("approval-accounts").replaceChildren();
+  if (!data.accounts.length) $("approval-accounts").append(el("p", "No matching accounts or requests.", "muted"));
   for (const user of data.accounts) {
     const row=el("div",undefined,"row");
-    row.append(el("span", `${user.name} · ${user.email} · ${user.id} · ${user.approved ? "Approved" : "Pending approval"}`));
+    row.append(el("span", `${user.name} · ${user.email} · ${user.id} · ${user.request_deleted ? "Request deleted" : user.approved ? "Approved" : "Pending approval"}`));
     if (!user.operator) row.append(action(user.approved ? "Suspend hosting" : "Approve hosting", async () => {
       await api(`/operator/accounts/${user.id}`,"PATCH",{approved:!user.approved});
       await approvalAccounts();
+    }));
+    if (!user.operator && !user.approved) row.append(action(user.request_deleted ? "Restore request" : "Delete request", async () => {
+      if (user.request_deleted) {
+        await api(`/operator/accounts/${user.id}/approval-request`, "POST");
+        await approvalAccounts();
+      } else {
+        deleteApprovalId = user.id;
+        $("delete-approval-person").textContent = `${user.name} · ${user.email}`;
+        $("delete-approval-error").textContent = "";
+        $("delete-approval-dialog").showModal();
+      }
     }));
     $("approval-accounts").append(row);
   }
@@ -1640,3 +1656,23 @@ bind("accounts-next", async () => { accountPage++;await approvalAccounts(); });
 bind("refresh-operator-usage", operatorUsage);
 bind("refresh-org-usage", async () => renderUsage($("org-usage"),await api(`/organizations/${$("org").value}/usage?days=30`)));
 bind("check-approval", async () => { await refreshMe();await dashboard(); });
+
+$("approval-search").onsubmit = event => {
+  event.preventDefault(); accountPage = 1;
+  perform(event.submitter, approvalAccounts);
+};
+$("approval-status").onchange = () => { accountPage = 1;perform(null, approvalAccounts); };
+$("delete-approval-cancel").onclick = () => $("delete-approval-dialog").close();
+$("delete-approval-dialog").addEventListener("close", () => { deleteApprovalId = null; });
+$("delete-approval-form").onsubmit = async event => {
+  event.preventDefault();
+  const id = deleteApprovalId;
+  if (!id) return;
+  const button = event.submitter;button.disabled = true;
+  try {
+    await api(`/operator/accounts/${id}/approval-request`, "DELETE");
+    $("delete-approval-dialog").close();
+    await approvalAccounts();
+  } catch (error) { $("delete-approval-error").textContent = error.message; }
+  finally { button.disabled = false; }
+};

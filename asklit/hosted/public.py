@@ -315,7 +315,7 @@ def public_router(settings, store, runtime):
             extra = {"attachments": [{"filename": a.filename, "text": a.text} for a in attachments]} if attachments else {}
             with meter(store, bot, "public_chat"):
                 result = runtime.answer(config, docs, body.message, profile, history, **extra)
-        except Exception:
+        except Exception as exc:
             with store.transaction() as db:
                 conv = db.scalar(
                     select(Conversation)
@@ -327,6 +327,9 @@ def public_router(settings, store, runtime):
                     turn.status = "failed"
                 if conv and conv.active_request == body.request_id:
                     conv.busy_until = 0
+            from .budget import BillingError
+            if isinstance(exc, BillingError):
+                raise exc
             raise HTTPException(
                 502,
                 "The assistant could not answer. Please try again with a new request.",

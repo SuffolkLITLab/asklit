@@ -129,7 +129,7 @@ class Runtime:
         model = self.settings.models.get(preset)
         if not model:
             raise RuntimeError("The published model preset is no longer available.")
-        handle = begin_call(self.settings, preset, model)
+        handle = begin_call(self.settings, preset, model, messages)
         started = time.perf_counter()
         usage = None
         try:
@@ -170,7 +170,17 @@ class Runtime:
         kwargs = {"modelId": model["model"], "messages": turns,
                   "inferenceConfig": {"maxTokens": min(int(model.get("max_tokens", 1500)), 4000)}}
         if system: kwargs["system"] = system
-        result = client.converse(**kwargs)
+        from botocore.exceptions import ClientError
+        from .budget import ProviderAccessDenied, ProviderQuotaExceeded
+        try:
+            result = client.converse(**kwargs)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code == "AccessDeniedException":
+                raise ProviderAccessDenied() from None
+            if code == "ServiceQuotaExceededException":
+                raise ProviderQuotaExceeded() from None
+            raise
         answer = "".join(block.get("text", "") for block in result["output"]["message"]["content"])
         measured = result.get("usage", {})
         return answer, {"input_tokens": measured.get("inputTokens"), "output_tokens": measured.get("outputTokens"),

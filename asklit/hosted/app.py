@@ -92,6 +92,12 @@ def create_app(settings=None, store=None, runtime=None):
     runtime = runtime or Runtime(settings)
     app = FastAPI(title="AskLit Hosted", version="1.0.0", docs_url=None, redoc_url=None)
     app.state.store, app.state.settings, app.state.runtime = store, settings, runtime
+    from .budget import BillingError
+
+    @app.exception_handler(BillingError)
+    async def monthly_budget_error(request, exc):
+        return JSONResponse({'detail': exc.detail, 'code': exc.code}, status_code=exc.status_code)
+
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.secret_key,

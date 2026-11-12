@@ -197,6 +197,9 @@ def evaluate(job, docs, runtime, progress=None):
                 rubric = parse_rubric_grade(judged)
             grade = combine_grades(deterministic, rubric)
         except Exception as exc:
+            from .budget import BillingError
+            if isinstance(exc, BillingError):
+                raise
             answer_elapsed = time.perf_counter() - started
             error = f"{stage.capitalize()} failed ({type(exc).__name__})."
             grade = {"passed": None, "score": None, "reason": error}
@@ -286,6 +289,7 @@ def run_one(store, settings, runtime, job=None):
                 .values(status="succeeded", result=result)
             )
     except Exception as exc:
+        from .budget import BillingError
         # Deliberately do not persist exception text: providers may echo credentials or documents.
         with store.transaction() as db:
             current = db.scalar(select(Job).where(Job.id == job.id).with_for_update())
@@ -293,7 +297,8 @@ def run_one(store, settings, runtime, job=None):
                 current.status, current.result = (
                     "failed",
                     {
-                        "error": f"{job.kind.capitalize()} failed ({type(exc).__name__}). Check the source file or operator configuration, then retry."
+                        "error": exc.detail if isinstance(exc, BillingError) else f"{job.kind.capitalize()} failed ({type(exc).__name__}). Check the source file or operator configuration, then retry.",
+                        "code": exc.code if isinstance(exc, BillingError) else "job_failed"
                     },
                 )
                 if job.kind == "index":

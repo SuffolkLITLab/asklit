@@ -74,7 +74,10 @@ def usage_router(settings, store):
     def all_usage(request: Request, days: int=Query(30,ge=1,le=366)):
         with store.transaction() as db:
             platform_operator(db,request)
-            return usage_report(db,days)
+            report = usage_report(db,days)
+            from .budget import budget_report
+            report["budget"] = budget_report(db, settings)
+            return report
 
     @router.get('/organizations/{org_id}/usage')
     def organization_usage(org_id: str, request: Request, days: int=Query(30,ge=1,le=366)):
@@ -96,10 +99,10 @@ def meter(store, bot, purpose):
     finally:_usage_context.reset(marker)
 
 
-def begin_call(settings, preset, model):
+def begin_call(settings, preset, model, messages=None):
     context=_usage_context.get()
     if context is None:
-        if settings.require_author_approval:raise RuntimeError('Model call requires a usage context.')
+        if settings.require_author_approval or settings.monthly_ai_budget_usd is not None:raise RuntimeError('Model call requires a usage context.')
         return None
     store,org_id,bot_id,purpose=context
     with store.transaction() as db:
@@ -107,7 +110,9 @@ def begin_call(settings, preset, model):
         owner=db.get(User,bot.owner_id) if bot else None
         if settings.require_author_approval and (not owner or not owner.author_approved):
             raise HTTPException(403,'The author must be approved for hosting before using AI services.')
-        event=UsageEvent(org_id=org_id,bot_id=bot_id,owner_id=bot.owner_id,purpose=purpose,preset=preset,model=model['model'],
+        from .budget import reserve_budget
+        reservation = reserve_budget(db, settings, model, messages)
+        event=UsageEvent(budget_reserved_usd=reservation,org_id=org_id,bot_id=bot_id,owner_id=bot.owner_id,purpose=purpose,preset=preset,model=model['model'],
                          input_rate=model.get('input_usd_per_million'),output_rate=model.get('output_usd_per_million'))
         db.add(event);db.flush();event_id=event.id
     return store,event_id

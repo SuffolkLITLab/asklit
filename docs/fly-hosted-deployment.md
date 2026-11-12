@@ -217,3 +217,63 @@ and billing adjustments. Reconcile with Suffolk AWS billing before invoicing.
 Public chat pages show the backend's organization name, immutable AskLit ID,
 AI-error notice, sensitive-information warning, and report link. Organization
 names are supplied by publishers; they are not identity-verification badges.
+
+## Monthly AI spending control
+
+Production sets `ASKLIT_MONTHLY_AI_BUDGET_USD=100` in `fly.hosted.toml`.
+The allowance covers all hosted model calls across organizations, including public
+chat, previews, question generation, evaluations, and judges. It resets on UTC
+calendar-month boundaries. Only the deployment operator can change it.
+
+Before a provider call, the API/worker reserves a conservative estimate in the
+shared database under a monthly lock. The estimate uses UTF-8 input size plus
+framing overhead, maximum output, and allowances for long-context/cache-write
+pricing. Known cost replaces the reservation when the call completes. Unknown
+cost, failed calls, and interrupted calls retain their reservation. Historical
+unknown-cost events without reservations count as $1 each. Concurrent workers
+cannot reserve the same remaining balance. Models without positive finite token
+rates are blocked. Paid speech is disabled while this budget is enabled because
+speech has no dollar ledger yet; browser speech is unaffected.
+
+This is an application spending gate based on estimates, not a guaranteed cap on
+the AWS invoice. It excludes Fly/Supabase charges, taxes, direct AWS calls outside
+AskLit, and pricing differences not represented by the configured rates. Keep
+rates current and reconcile with AWS billing. The gate can pause requests before
+the exact $100 threshold because it reserves a full request's potential cost.
+
+Budget-denied requests return HTTP 429 with code `monthly_ai_budget_exceeded`
+and a visible message explaining the AI spending allowance. Evaluation jobs stop
+with that same reference instead of a generic model error. Service administration
+shows the current month, committed allowance (including holds), and remainder.
+Operators should check this panel first when users report that reference. Raising
+the app limit requires changing the deployment setting; do not delete usage
+history or release unknown-cost reservations without reconciling their charges.
+
+### AWS backstop
+
+Suffolk account `132950722695` also has the monthly $100 AWS budget
+`AskLit-Bedrock-monthly-100`, with actual-spend alerts at 50%, 80%, and 100% to
+`litlab@suffolk.edu`. Its service filter includes Amazon Bedrock and the selected
+third-party model billing services, including OpenAI and Anthropic Marketplace
+charges. This filter sees matching spending across the Suffolk account, including
+calls outside AskLit; it is deliberately broader than the application ledger.
+Update the filter when adding a model billed under a new Marketplace service name.
+
+At $100, the automatic IAM budget action attaches `AskLitMonthlyBudgetStop` only
+to `asklit-bedrock-production`, denying model invocation. It does not disable
+other Suffolk users or resources. The dedicated execution role can attach/detach
+only that policy to that user. AWS IAM budget actions reset in the next budget
+period. Billing data arrives with a delay, so this backstop cannot prevent an
+instantaneous spike by itself. See [AWS budget actions](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-controls.html).
+
+If AWS blocks access despite available app allowance, check this budget's action
+history and the runtime user's attached policies, along with model permissions.
+Do not bypass an active budget action by rotating credentials. Any approved limit
+increase must update both the AWS budget/action threshold and the app setting.
+
+Other visible billing references are `ai_model_pricing_missing` (operator pricing
+configuration), `ai_provider_access_denied` (check the AWS budget action and IAM
+model permissions), and `ai_provider_quota_exceeded` (AWS service quota).
+Provider error text is never exposed: it may contain sensitive request details.
+A provider access denial is not automatically classified as budget exhaustion,
+since missing model permissions produce the same AWS error code.

@@ -23,7 +23,12 @@ function mountVoicePanel(prefix, options) {
   node("toggle").onclick = () => active ? voice.stop() : void voice.start(config());
   node("play").onclick = () => void voice.read(answer, config());
   node("finish").onclick = () => voice.finish();
-  for (const key of ["mode", "loop", "read", "lang"]) node(key).onchange = () => voice.stop();
+  for (const key of ["mode", "loop", "read", "lang"]) node(key).onchange = () => {
+    voice.stop();
+    node("hint").textContent = node("loop").checked
+      ? "Speak naturally. Messages send automatically, and the microphone listens again after each reply. Use Stop voice to end."
+      : "Dictation fills the message box. Review the text, then send.";
+  };
   const poll = setInterval(async () => {
     if (!active || node("mode").value !== "service") return;
     try {

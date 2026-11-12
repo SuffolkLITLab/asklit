@@ -10,9 +10,10 @@
     <button id="chat-voice-finish" type="button" class="quiet" hidden>Finish recording</button>
     <span id="chat-voice-status" role="status" class="muted"></span>
   </div>
+  <p id="chat-voice-hint" class="muted">Speak naturally. Messages send automatically, and the microphone listens again after each reply. Use Stop voice to end.</p>
   <details><summary>Voice options</summary>
     <label>Speech<select id="chat-voice-mode"><option value="browser">Browser</option><option value="service" disabled>Paid service</option></select></label>
-    <label class="choice"><input id="chat-voice-loop" type="checkbox"><span>Hands-free conversation — send when I finish speaking</span></label>
+    <label class="choice"><input id="chat-voice-loop" type="checkbox" checked><span>Send automatically when I finish speaking</span></label>
     <label class="choice"><input id="chat-voice-read" type="checkbox" checked><span>Read replies aloud</span></label>
     <label>Language<select id="chat-voice-lang"><option value="">Browser language</option><option value="en-US">English</option><option value="es-US">Español</option><option value="pt-BR">Português</option><option value="fr-FR">Français</option><option value="zh-CN">中文</option><option value="ar-SA">العربية</option></select></label>
   </details>

@@ -14,7 +14,20 @@ Supabase PostgreSQL's transaction pooler and private Storage; no persistent Fly
 volume is required. Model caches are disposable. Hosted migrations enforce RLS
 and remove browser-role grants on AskLit tables.
 
-Import the server-only environment from a private file into Fly secrets:
+Merging a pull request into `main` triggers `.github/workflows/deploy-fly.yml`.
+It deploys both the existing scaffolder and Studio. The Studio job stages
+`docs/bedrock-models.json` as `ASKLIT_MODELS_JSON`, then deploys `fly.hosted.toml`,
+including migrations, the API, and the worker. Other production secrets remain
+configured in Fly. Concurrent releases are serialized. `workflow_dispatch`
+allows a manual rerun. The static frontend remains in the CourtFormsOnline repository.
+
+GitHub Actions uses `FLY_STUDIO_API_TOKEN`, an app-scoped deploy token for
+`asklit-studio`, separate from the scaffolder's `FLY_API_TOKEN`. Renew this
+one-year token before November 11, 2027 using `fly tokens create deploy`, and
+replace the GitHub secret without committing or printing the token.
+
+For initial setup or a manual deployment, import the server-only environment
+from a private file into Fly secrets:
 
 ```sh
 fly secrets import --stage --app asklit-studio < /PRIVATE/PATH/production.env

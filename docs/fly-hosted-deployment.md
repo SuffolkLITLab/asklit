@@ -31,7 +31,17 @@ permissions are granted to the running service. Rotate its access key through
 IAM and update Fly secrets and private environment files together.
 
 [Bedrock presets](bedrock-models.json) include Nova Lite, Nova Micro, Claude Haiku
-4.5, and Meta Llama 3.1 8B. `tiny` uses Nova Micro with a 128-token output limit.
+4.5, Meta Llama 3.1 8B, and OpenAI GPT-6 Luna (small), GPT-6.1 Terra
+(medium), and GPT-6.1 Sol (large). Astra is excluded. The OpenAI presets use
+US cross-region Bedrock Converse, billed to Suffolk AWS; no OpenAI API key
+is needed. They are available in both the bot model selector and evaluation
+matrices. Standard input/output rates per million tokens are $0.11/$0.55
+for Luna, $1.10/$5.50 for Terra, and $2.20/$11.00 for Sol, checked
+November 11, 2026 against AWS pricing. Cached calls and requests over 272,000
+input tokens are recorded with unknown cost rather than an incorrect estimate.
+See the [AWS OpenAI model catalog](https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards-openai.html).
+The runtime IAM managed policy must include each selected inference profile and
+its underlying foundation-model ARNs; adding a preset alone does not grant access. `tiny` uses Nova Micro with a 128-token output limit.
 Legacy `gpt-4.1-mini`/`gpt-4.1` preset keys remain compatibility aliases to Bedrock
 models; they no longer call OpenAI. Existing saved configurations are preserved.
 The OpenAI key copied from ALWeaver has been removed from AskLit environments

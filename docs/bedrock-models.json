@@ -40,7 +40,7 @@
     "pricing_checked": "2026-11-11"
   },
   "tiny": {
-    "label": "Nova Micro \u2014 small test",
+    "label": "Nova Micro — small test",
     "provider": "bedrock",
     "model": "us.amazon.nova-micro-v1:0",
     "region": "us-east-1",
@@ -70,5 +70,38 @@
     "output_usd_per_million": 5.5,
     "pricing_checked": "2026-11-11",
     "hidden": true
+  },
+  "gpt-6-luna": {
+    "label": "OpenAI GPT-6 Luna — small",
+    "provider": "bedrock",
+    "model": "us.openai.gpt-6-luna",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 0.11,
+    "output_usd_per_million": 0.55,
+    "pricing_checked": "2026-11-11",
+    "pricing_max_input_tokens": 272000
+  },
+  "gpt-6.1-terra": {
+    "label": "OpenAI GPT-6.1 Terra — medium",
+    "provider": "bedrock",
+    "model": "us.openai.gpt-6.1-terra",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 1.1,
+    "output_usd_per_million": 5.5,
+    "pricing_checked": "2026-11-11",
+    "pricing_max_input_tokens": 272000
+  },
+  "gpt-6.1-sol": {
+    "label": "OpenAI GPT-6.1 Sol — large",
+    "provider": "bedrock",
+    "model": "us.openai.gpt-6.1-sol",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 2.2,
+    "output_usd_per_million": 11,
+    "pricing_checked": "2026-11-11",
+    "pricing_max_input_tokens": 272000
   }
 }

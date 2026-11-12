@@ -144,6 +144,10 @@ class Runtime:
         except Exception:
             finish_call(handle, "failed", usage, time.perf_counter() - started)
             raise
+        # Some models charge different rates for long context. Keep those calls
+        # visible as unknown cost until the ledger supports multiple rate tiers.
+        if usage and model.get("pricing_max_input_tokens") is not None:
+            usage["unpriced_context"] = (usage.get("input_tokens") or 0) > model["pricing_max_input_tokens"]
         finish_call(handle, "succeeded", usage, time.perf_counter() - started)
         return answer
 

@@ -124,5 +124,5 @@ def finish_call(handle, status, usage, elapsed):
             event.output_tokens=usage.get('output_tokens')
             # No prompt caching is requested by this service. If a provider reports
             # cached usage, keep cost unknown rather than applying incorrect rates.
-            if not usage.get('cached_tokens') and all(v is not None for v in [event.input_tokens,event.output_tokens,event.input_rate,event.output_rate]):
+            if not usage.get('cached_tokens') and not usage.get('unpriced_context') and all(v is not None for v in [event.input_tokens,event.output_tokens,event.input_rate,event.output_rate]):
                 event.estimated_cost_usd=(event.input_tokens*event.input_rate+event.output_tokens*event.output_rate)/1_000_000

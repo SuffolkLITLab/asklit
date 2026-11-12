@@ -119,3 +119,36 @@ def test_matrix_worker_meters_answers_and_judges_with_approval_required(hosted):
         assert len(events)==64
         assert sum(event.preset=='judge' for event in events)==32
         assert all(event.owner_id=='alice' and event.status=='succeeded' and event.purpose=='evaluation' for event in events)
+
+
+@pytest.mark.parametrize('preset', ['gpt-6-luna', 'gpt-6.1-terra', 'gpt-6.1-sol'])
+@pytest.mark.parametrize('input_tokens,cached', [(100, 0), (272001, 0), (100, 20)])
+def test_frontier_presets_meter_converse_without_underpricing(hosted, monkeypatch, preset, input_tokens, cached):
+    import json
+    from pathlib import Path
+    import boto3
+    settings, store = hosted[:2]
+    bot = new_bot(hosted)
+    settings.models.update(json.loads(Path('docs/bedrock-models.json').read_text()))
+    class Provider:
+        def converse(self, **kwargs):
+            assert kwargs['modelId'] == 'us.openai.' + preset
+            assert kwargs['inferenceConfig']['maxTokens'] == 1500
+            return {'output': {'message': {'content': [
+                {'reasoningContent': {'redactedContent': b'private'}}, {'text': 'violet'}
+            ]}}, 'usage': {'inputTokens': input_tokens, 'outputTokens': 17, 'cacheReadInputTokens': cached}}
+    monkeypatch.setattr(boto3.session.Session, 'client', lambda *a, **k: Provider())
+    with store.transaction() as db:
+        b = db.get(Bot, bot['id'])
+    with meter(store, b, 'preview'):
+        assert Runtime(settings).call([{'role': 'user', 'content': 'Reply violet'}], preset) == 'violet'
+    with store.transaction() as db:
+        event = db.scalar(select(UsageEvent))
+        assert event.status == 'succeeded'
+        assert event.input_tokens == input_tokens
+        assert event.output_tokens == 17
+        if cached or input_tokens > 272000:
+            assert event.estimated_cost_usd is None
+        else:
+            model = settings.models[preset]
+            assert event.estimated_cost_usd == pytest.approx((input_tokens * model['input_usd_per_million'] + 17 * model['output_usd_per_million']) / 1_000_000)

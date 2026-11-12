@@ -36,6 +36,7 @@ class Settings:
     microsoft_tenant: str = "organizations"
     embedding_model: str = "all-MiniLM-L6-v2"
     evaluation_max_calls: int = 240
+    monthly_ai_budget_usd: float | None = None
     daily_calls: int = 500
     global_daily_calls: int = 5000
     public_daily_calls: int = 5000
@@ -48,6 +49,9 @@ class Settings:
     supabase_service_role_key: str = field(default="", repr=False)
 
     def __post_init__(self):
+        import math
+        if self.monthly_ai_budget_usd is not None and (not math.isfinite(self.monthly_ai_budget_usd) or self.monthly_ai_budget_usd <= 0):
+            raise ValueError("Monthly AI budget must be a finite positive USD amount.")
         speech_url = urlparse(self.speech_base_url)
         if (not speech_url.hostname or speech_url.username or speech_url.password
             or speech_url.query or speech_url.fragment
@@ -122,6 +126,10 @@ class Settings:
         for preset in self.models.values():
             if not isinstance(preset, dict) or not isinstance(preset.get("model"), str):
                 raise ValueError("Each hosted model preset must name a model.")
+            if self.monthly_ai_budget_usd is not None:
+                rates = [preset.get("input_usd_per_million"), preset.get("output_usd_per_million")]
+                if any(not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0 for x in rates):
+                    raise ValueError("AI budget requires positive finite input/output rates for every model preset.")
             if preset.get("base_url"):
                 endpoint = urlparse(preset["base_url"])
                 if (
@@ -176,6 +184,7 @@ class Settings:
             }
         return cls(
             database_url=database,
+            monthly_ai_budget_usd=float(os.environ["ASKLIT_MONTHLY_AI_BUDGET_USD"]) if os.getenv("ASKLIT_MONTHLY_AI_BUDGET_USD") else None,
             speech_base_url=os.getenv("ASKLIT_SPEECH_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
             speech_api_key=os.getenv("ASKLIT_SPEECH_API_KEY", ""),
             speech_key_header=os.getenv("ASKLIT_SPEECH_KEY_HEADER", "Authorization"),

@@ -1596,6 +1596,12 @@ let accountPage = 1;
 function renderUsage(target, report) {
   target.replaceChildren();
   const t = report.totals;
+  if (report.budget?.limit_usd != null) {
+    const b = report.budget;
+    target.append(el("p", `$${b.committed_usd.toFixed(2)} of $${b.limit_usd.toFixed(2)} monthly AI allowance committed · $${b.remaining_usd.toFixed(2)} remaining`));
+    target.append(el("p", `$${b.estimated_spend_usd.toFixed(2)} estimated spend · $${b.held_usd.toFixed(2)} reserved for pending or unknown-cost requests · ${b.legacy_unknown_calls} earlier unknown-cost calls counted at $1 each`, "muted"));
+    target.append(el("p", b.note, "muted"));
+  }
   target.append(el("p", `${t.requests.toLocaleString()} model calls · ${t.succeeded.toLocaleString()} succeeded · ${t.failed.toLocaleString()} failed · ${t.unfinished.toLocaleString()} unfinished`));
   target.append(el("p", `${t.input_tokens.toLocaleString()} input tokens · ${t.output_tokens.toLocaleString()} output tokens · $${t.estimated_cost_usd.toFixed(6)} estimated AI cost`));
   if (t.unknown_cost_requests) target.append(el("p", `${t.unknown_cost_requests.toLocaleString()} calls have unknown cost; the total is incomplete.`));

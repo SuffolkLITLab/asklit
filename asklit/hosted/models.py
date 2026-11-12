@@ -45,6 +45,7 @@ class UsageEvent(Base):
     input_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     output_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
     estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    budget_reserved_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 

@@ -24,6 +24,8 @@ SLOTS = threading.BoundedSemaphore(4)
 
 
 def speech_configured(settings):
+    if settings.monthly_ai_budget_usd is not None:
+        return False  # Paid speech has no dollar metering yet; cannot bypass the cap.
     return bool(settings.speech_api_key and settings.speech_stt_model and settings.speech_tts_model)
 
 

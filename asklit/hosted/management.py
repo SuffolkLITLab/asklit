@@ -207,16 +207,24 @@ def management_router(settings, store, runtime):
             )
             if not invite or invite.used or invite.expires <= time.time():
                 raise HTTPException(404, "Invitation is invalid or expired.")
+            user = db.scalar(select(User).where(User.id == session.user_id).with_for_update())
+            if invite.recipient_email and user.email.strip().lower() != invite.recipient_email:
+                raise HTTPException(403, "Sign in with the email address this invitation was issued to.")
             local = db.get(LocalAccount, session.user_id)
             if local and local.managed_org_id != invite.org_id:
                 raise HTTPException(403, "Use an OAuth account to join another organization.")
             member = db.get(Membership, (invite.org_id, session.user_id))
+            if member and member.role != invite.role:
+                raise HTTPException(409, "You already belong to this organization with a different role. Ask an organization owner to change your role.")
             if not member:
                 db.add(
                     Membership(
                         org_id=invite.org_id, user_id=session.user_id, role=invite.role
                     )
                 )
+            if invite.grants_hosting:
+                user.author_approved = True
+                user.approval_deleted = False
             invite.used = True
             audit(
                 db, session.user_id, invite.org_id, "invitation.accept", session.user_id

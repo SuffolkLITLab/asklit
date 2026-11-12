@@ -31,7 +31,7 @@ def login_session(db, request, mutation=False):
         raise HTTPException(403, "Change your password before continuing.")
     settings = request.app.state.settings
     path = request.url.path
-    author_routes = path.startswith("/api/") and path not in {"/api/me", "/api/logout", "/api/account/password", "/api/gallery"} and not path.startswith(("/api/public/", "/api/gallery/"))
+    author_routes = path.startswith("/api/") and path not in {"/api/me", "/api/logout", "/api/account/password", "/api/gallery", "/api/invitations/accept"} and not path.startswith(("/api/public/", "/api/gallery/"))
     if settings.require_author_approval and author_routes:
         user = db.get(User, session.user_id)
         if not user or not user.author_approved:

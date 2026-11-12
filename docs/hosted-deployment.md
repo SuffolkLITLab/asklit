@@ -438,3 +438,46 @@ models for this HTTP adapter. See the official
 [speech-to-text](https://developers.openai.com/api/docs/guides/speech-to-text)
 and [text-to-speech](https://developers.openai.com/api/docs/guides/text-to-speech)
 guides and your provider's own support policy.
+
+### Search and delete approval requests
+
+Service operators can search **Admin → Hosting approvals** by
+name, email, or account ID, and filter pending, approved, or deleted requests.
+Search is case-insensitive and applies before pagination. **Delete request** uses
+an in-app confirmation and removes a pending request from the active list; it
+does not delete the account, usage records, or organization history, and it does
+not approve hosting. Deleted requests stay deleted across sign-ins. Use
+**Deleted requests → Restore request** to return one to the queue. Approved
+accounts and platform operators cannot be deleted through this request action.
+
+### School organizations and professor invitations
+
+**Admin → Organizations** lists each organization's member count, approved
+members, AI request volume, estimated AI cost, and unknown-cost calls for the
+selected period. **Members, invitations & usage** shows the member roster and
+per-AskLit/model usage detail. There is no author-seat limit or automatic price
+calculation; these counts and costs can inform a school's hosting arrangement.
+
+**Add organization** provisions a school with its own stable URL prefix. This
+operator action works for local service administrators without adding them to the
+school's membership or changing their home organization.
+
+Create an invitation for the professor's email and choose Author, Administrator,
+or Owner. An owner can manage the school's other administrators; an author can
+edit only their own AskLits. Copy and share the invitation link. The app does not
+send email. Links expire after seven days, can be used once, and can be revoked
+from the organization's pending-invitation list.
+
+An **Admin-issued invitation includes hosting approval**. The recipient can use
+Google/Microsoft sign-in or create a local email/password account from the link.
+Existing accounts must match the invited email. A new local account belongs only
+to the invited school; it chooses its own password and does not need a second
+approval. Existing local accounts managed by another organization must use an
+OAuth identity to join a different school. OAuth identities are never merged by
+email. Ordinary organization-issued invitations do not grant hosting approval.
+
+Invitation signup is limited to named Admin-issued links. Existing members should
+have role changes made through their organization's member settings, rather than
+being invited again. Invalid invitation screens offer a way back to sign-in or
+the dashboard. **Refresh** in the organization dialog updates the member roster,
+pending invitations, and usage after someone joins.

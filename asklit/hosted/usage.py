@@ -3,7 +3,8 @@ import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Query
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, func, case, update
+from sqlalchemy import select, func, case, update, or_
+from typing import Literal
 from .models import User, Bot, UsageEvent, Organization, Audit
 from .security import login_session, membership
 
@@ -48,11 +49,17 @@ def usage_router(settings, store):
     router=APIRouter(prefix='/api')
 
     @router.get('/operator/accounts')
-    def accounts(request: Request, page: int=Query(1,ge=1)):
+    def accounts(request: Request, page: int=Query(1,ge=1), q: str=Query("",max_length=320), status: Literal["all", "pending", "approved", "deleted"]="all"):
         with store.transaction() as db:
             platform_operator(db,request)
-            users=db.scalars(select(User).order_by(User.author_approved,User.id).offset((page-1)*100).limit(101)).all()
-            return {'has_more':len(users)>100,'page':page,'accounts':[{'id':u.id,'name':u.name,'email':u.email,'approved':u.author_approved,'operator':u.platform_admin} for u in users[:100]]}
+            stmt = select(User).where(User.approval_deleted.is_(status == "deleted"))
+            if status == "pending": stmt = stmt.where(User.author_approved.is_(False))
+            if status == "approved": stmt = stmt.where(User.author_approved.is_(True))
+            if q.strip():
+                term = q.strip().lower()
+                stmt = stmt.where(or_(func.lower(User.name).contains(term, autoescape=True), func.lower(User.email).contains(term, autoescape=True), func.lower(User.id).contains(term, autoescape=True)))
+            users=db.scalars(stmt.order_by(User.author_approved,User.id).offset((page-1)*100).limit(101)).all()
+            return {'has_more':len(users)>100,'page':page,'accounts':[{'id':u.id,'name':u.name,'email':u.email,'approved':u.author_approved,'operator':u.platform_admin,'request_deleted':u.approval_deleted} for u in users[:100]]}
 
     @router.patch('/operator/accounts/{user_id}')
     def approve(user_id: str, body: Approval, request: Request):
@@ -62,6 +69,7 @@ def usage_router(settings, store):
             if not user:raise HTTPException(404,'Account not found.')
             if user.platform_admin and not body.approved:raise HTTPException(409,'Operator accounts cannot be suspended here.')
             user.author_approved=body.approved
+            user.approval_deleted=False
             if not body.approved:
                 db.execute(update(Bot).where(Bot.owner_id==user.id).values(published_id=None,access_version=Bot.access_version+1))
             # Operator audit belongs to each affected workspace, avoiding a fabricated org.
@@ -69,6 +77,28 @@ def usage_router(settings, store):
             orgs=db.scalars(select(Membership.org_id).where(Membership.user_id==user.id)).all()
             for org in orgs:db.add(Audit(user_id=actor.id,org_id=org,action='hosting.approve' if body.approved else 'hosting.suspend',target=user.id))
             return {'id':user.id,'approved':user.author_approved}
+
+
+    def change_request(user_id, request, deleted):
+        with store.transaction() as db:
+            actor = platform_operator(db, request, True)
+            user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+            if not user: raise HTTPException(404, 'Account not found.')
+            if user.platform_admin or user.author_approved:
+                raise HTTPException(409, 'Only pending approval requests can be deleted or restored.')
+            user.approval_deleted = deleted
+            from .models import Membership
+            for org_id in db.scalars(select(Membership.org_id).where(Membership.user_id == user_id)):
+                db.add(Audit(user_id=actor.id, org_id=org_id, action='hosting.request_delete' if deleted else 'hosting.request_restore', target=user.id))
+            return {'id': user.id, 'request_deleted': deleted}
+
+    @router.delete('/operator/accounts/{user_id}/approval-request')
+    def delete_request(user_id: str, request: Request):
+        return change_request(user_id, request, True)
+
+    @router.post('/operator/accounts/{user_id}/approval-request')
+    def restore_request(user_id: str, request: Request):
+        return change_request(user_id, request, False)
 
     @router.get('/operator/usage')
     def all_usage(request: Request, days: int=Query(30,ge=1,le=366)):

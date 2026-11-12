@@ -26,6 +26,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(200))
     author_approved: Mapped[bool] = mapped_column(Boolean, default=False)
     platform_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class UsageEvent(Base):
@@ -99,6 +100,8 @@ class Invitation(Base):
     role: Mapped[str] = mapped_column(String(20))
     expires: Mapped[float] = mapped_column(Float)
     used: Mapped[bool] = mapped_column(Boolean, default=False)
+    recipient_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    grants_hosting: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Bot(Base):

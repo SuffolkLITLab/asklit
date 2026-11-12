@@ -122,8 +122,9 @@ def test_matrix_worker_meters_answers_and_judges_with_approval_required(hosted):
 
 
 @pytest.mark.parametrize('preset', ['gpt-6-luna', 'gpt-6.1-terra', 'gpt-6.1-sol'])
+@pytest.mark.parametrize('empty', [False, True])
 @pytest.mark.parametrize('input_tokens,cached', [(100, 0), (272001, 0), (100, 20)])
-def test_frontier_presets_meter_converse_without_underpricing(hosted, monkeypatch, preset, input_tokens, cached):
+def test_frontier_presets_meter_converse_without_underpricing(hosted, monkeypatch, preset, input_tokens, cached, empty):
     import json
     from pathlib import Path
     import boto3
@@ -135,16 +136,20 @@ def test_frontier_presets_meter_converse_without_underpricing(hosted, monkeypatc
             assert kwargs['modelId'] == 'us.openai.' + preset
             assert kwargs['inferenceConfig']['maxTokens'] == 1500
             return {'output': {'message': {'content': [
-                {'reasoningContent': {'redactedContent': b'private'}}, {'text': 'violet'}
+                {'reasoningContent': {'redactedContent': b'private'}}, {'text': '' if empty else 'violet'}
             ]}}, 'usage': {'inputTokens': input_tokens, 'outputTokens': 17, 'cacheReadInputTokens': cached}}
     monkeypatch.setattr(boto3.session.Session, 'client', lambda *a, **k: Provider())
     with store.transaction() as db:
         b = db.get(Bot, bot['id'])
     with meter(store, b, 'preview'):
-        assert Runtime(settings).call([{'role': 'user', 'content': 'Reply violet'}], preset) == 'violet'
+        if empty:
+            with pytest.raises(RuntimeError, match='no answer'):
+                Runtime(settings).call([{'role': 'user', 'content': 'Reply violet'}], preset)
+        else:
+            assert Runtime(settings).call([{'role': 'user', 'content': 'Reply violet'}], preset) == 'violet'
     with store.transaction() as db:
         event = db.scalar(select(UsageEvent))
-        assert event.status == 'succeeded'
+        assert event.status == ('failed' if empty else 'succeeded')
         assert event.input_tokens == input_tokens
         assert event.output_tokens == 17
         if cached or input_tokens > 272000:

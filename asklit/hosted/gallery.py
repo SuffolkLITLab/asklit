@@ -17,7 +17,10 @@ def resolve_org(db, slug):
     alias = db.get(OrganizationAlias, slug)
     if not alias:
         raise HTTPException(404, "Organization not found.")
-    return db.get(Organization, alias.org_id)
+    org = db.get(Organization, alias.org_id)
+    if not org or org.archived:
+        raise HTTPException(404, "Organization not found.")
+    return org
 
 
 def resolve_bot(db, org_slug, slug):
@@ -47,7 +50,7 @@ def gallery_router(settings, store):
             select(Bot, Revision, Organization)
             .join(Revision, Revision.id == Bot.published_id)
             .join(Organization, Organization.id == Bot.org_id)
-            .where(Bot.archived.is_(False), Organization.gallery_enabled.is_(True))
+            .where(Bot.archived.is_(False), Organization.gallery_enabled.is_(True), Organization.archived.is_(False))
         )
         statement = statement.where(
             or_(Bot.access_mode == "public", Bot.access_mode == "organization")

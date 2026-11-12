@@ -239,7 +239,7 @@ def auth_router(settings, store):
             orgs = db.execute(
                 select(Organization, Membership)
                 .join(Membership)
-                .where(Membership.user_id == user.id)
+                .where(Membership.user_id == user.id, Organization.archived.is_(False))
             ).all()
             return {
                 "id": user.id,
@@ -250,6 +250,7 @@ def auth_router(settings, store):
                 "author_approved": user.author_approved or not settings.require_author_approval,
                 "platform_admin": user.platform_admin,
                 "must_change_password": bool(local and local.must_change_password),
+                "archived_organizations": list(db.scalars(select(Organization.name).join(Membership).where(Membership.user_id == user.id, Organization.archived.is_(True)))),
                 "organizations": [
                     {"id": o.id, "name": o.name, "role": m.role, "local_accounts_enabled": o.local_accounts_enabled} for o, m in orgs
                 ],

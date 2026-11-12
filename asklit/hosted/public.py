@@ -28,7 +28,7 @@ from .uploads import (MAX_BYTES, MAX_CHARS, MAX_FILES, convert_upload, filename_
 
 def public_bot(db, bot_id):
     bot = db.get(Bot, bot_id)
-    if not bot or bot.archived or not bot.published_id:
+    if not bot or bot.archived or not bot.published_id or db.get(Organization, bot.org_id).archived:
         raise HTTPException(404, "This assistant is not published.")
     return bot
 

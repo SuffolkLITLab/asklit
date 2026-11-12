@@ -205,7 +205,7 @@ def management_router(settings, store, runtime):
                 .where(Invitation.token_hash == digest(body.token))
                 .with_for_update()
             )
-            if not invite or invite.used or invite.expires <= time.time():
+            if not invite or invite.used or invite.expires <= time.time() or db.get(Organization, invite.org_id).archived:
                 raise HTTPException(404, "Invitation is invalid or expired.")
             user = db.scalar(select(User).where(User.id == session.user_id).with_for_update())
             if invite.recipient_email and user.email.strip().lower() != invite.recipient_email:
@@ -307,6 +307,7 @@ def management_router(settings, store, runtime):
                 .where(
                     Membership.user_id == session.user_id,
                     Bot.archived.is_(False),
+                    Bot.org_id.in_(select(Organization.id).where(Organization.archived.is_(False))),
                     or_(
                         Bot.owner_id == session.user_id,
                         Membership.role.in_(["owner", "admin"]),

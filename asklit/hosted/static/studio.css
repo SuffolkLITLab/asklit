@@ -681,3 +681,17 @@ footer nav { margin-top: 1rem; font-size: .875rem; }
 .publisher-notice { border-left: 3px solid #ffbd00; padding-left: 1rem; margin: 1rem 0 1.5rem; font-size: .9rem; }
 .publisher-notice p { margin: .4rem 0; }
 .publisher-notice summary { font-weight: normal; }
+
+/* Align labeled filters and their action buttons along the input baseline. */
+#service-admin .actions {
+  align-items: flex-end;
+  margin-block: 1rem;
+}
+#service-admin .actions > label {
+  margin: 0;
+}
+
+.dialog-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.dialog-header h2 { margin-top: 0; }
+.dialog-header > button { flex-shrink: 0; margin-left: auto; }
+.dialog-header > button span { font-size: 1.3em; line-height: 1; }

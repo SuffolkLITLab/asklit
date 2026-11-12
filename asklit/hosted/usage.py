@@ -136,6 +136,8 @@ def begin_call(settings, preset, model, messages=None):
         return None
     store,org_id,bot_id,purpose=context
     with store.transaction() as db:
+        org=db.scalar(select(Organization).where(Organization.id==org_id).with_for_update())
+        if not org or org.archived:raise HTTPException(403,"This organization is archived.")
         bot=db.get(Bot,bot_id)
         owner=db.get(User,bot.owner_id) if bot else None
         if settings.require_author_approval and (not owner or not owner.author_approved):
@@ -153,6 +155,7 @@ def finish_call(handle, status, usage, elapsed):
     store,event_id=handle
     with store.transaction() as db:
         event=db.get(UsageEvent,event_id)
+        if event is None:return  # Deleted organization: reservation remains in anonymous totals.
         event.status=status;event.latency_ms=int(elapsed*1000)
         if usage:
             event.input_tokens=usage.get('input_tokens')

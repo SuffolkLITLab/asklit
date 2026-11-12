@@ -38,10 +38,11 @@ def admin_organizations_router(settings, store):
     router=APIRouter(prefix='/api/operator')
 
     @router.get('/organizations')
-    def organizations(request: Request, days: int=Query(30,ge=1,le=366), q: str=Query('',max_length=200), page: int=Query(1,ge=1)):
+    def organizations(request: Request, days: int=Query(30,ge=1,le=366), q: str=Query('',max_length=200), page: int=Query(1,ge=1), status: Literal['active','archived','all']='active'):
         with store.transaction() as db:
             platform_operator(db,request)
             stmt=select(Organization)
+            if status != "all":stmt=stmt.where(Organization.archived.is_(status=="archived"))
             if q.strip():
                 term=q.strip().lower()
                 stmt=stmt.where(or_(func.lower(Organization.name).contains(term,autoescape=True),func.lower(Organization.slug).contains(term,autoescape=True)))
@@ -53,7 +54,7 @@ def admin_organizations_router(settings, store):
             for row in usage_report(db,days)['rows']:
                 if row['org_id'] in usage:
                     for key in usage[row['org_id']]:usage[row['org_id']][key]+=row[key]
-            return {'page':page,'has_more':len(orgs)>100,'days':days,'organizations':[{'id':o.id,'name':o.name,'slug':o.slug,'members':counts.get(o.id,(0,0))[0],'approved_members':counts.get(o.id,(0,0))[1],**usage[o.id]} for o in orgs[:100]]}
+            return {'page':page,'has_more':len(orgs)>100,'days':days,'organizations':[{'id':o.id,'name':o.name,'slug':o.slug,'archived':o.archived,'members':counts.get(o.id,(0,0))[0],'approved_members':counts.get(o.id,(0,0))[1],**usage[o.id]} for o in orgs[:100]]}
 
     @router.post('/organizations')
     def create(body: NewOrganization, request: Request):
@@ -91,6 +92,7 @@ def admin_organizations_router(settings, store):
             operator=platform_operator(db,request,True)
             org=db.get(Organization,org_id)
             if not org:raise HTTPException(404,'Organization not found.')
+            if org.archived:raise HTTPException(409,'Restore the organization before inviting members.')
             existing=db.scalar(select(User.id).join(Membership, Membership.user_id==User.id).where(Membership.org_id==org.id,func.lower(User.email)==body.email).limit(1))
             if existing:raise HTTPException(409,'This person is already a member. Use Hosting approvals for approval, or organization member settings to change their role.')
             invitation=Invitation(token_hash=digest(raw),org_id=org.id,role=body.role,recipient_email=body.email,grants_hosting=True,expires=time.time()+7*86400)

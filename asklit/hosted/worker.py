@@ -33,7 +33,8 @@ from .models import (
 )
 from .runtime import MAX_CHUNKS, Runtime, selected_documents
 from .settings import Settings
-from .storage import object_store
+from .storage import object_store, cleanup_deleted_objects
+from .models import Organization
 
 
 def sweep(store):
@@ -75,7 +76,7 @@ def claim(store):
     with store.transaction() as db:
         job = db.scalar(
             select(Job)
-            .where(Job.status == "queued")
+            .where(Job.status == "queued", Job.bot_id.in_(select(Bot.id).where(Bot.org_id.in_(select(Organization.id).where(Organization.archived.is_(False))))))
             .order_by(Job.created)
             .with_for_update(skip_locked=True)
             .limit(1)
@@ -237,6 +238,7 @@ def evaluate(job, docs, runtime, progress=None):
 def run_one(store, settings, runtime, job=None):
     if job is None:
         sweep(store)
+        cleanup_deleted_objects(settings, store)
         job = claim(store)
     if not job:
         return False
@@ -328,6 +330,7 @@ def main():
     context = multiprocessing.get_context("spawn")
     while True:
         sweep(store)
+        cleanup_deleted_objects(settings, store)
         job = claim(store)
         if job:
             # Isolate parsers/model workloads and enforce a hard wall-clock bound.

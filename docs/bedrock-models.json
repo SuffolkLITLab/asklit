@@ -103,5 +103,25 @@
     "output_usd_per_million": 11,
     "pricing_checked": "2026-11-11",
     "pricing_max_input_tokens": 272000
+  },
+  "claude-sonnet": {
+    "label": "Claude Sonnet 5.5",
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-sonnet-5-5",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 2.2,
+    "output_usd_per_million": 11,
+    "pricing_checked": "2026-11-11"
+  },
+  "claude-opus": {
+    "label": "Claude Opus 5.5",
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-opus-5-5",
+    "region": "us-east-1",
+    "max_tokens": 1500,
+    "input_usd_per_million": 4.4,
+    "output_usd_per_million": 22,
+    "pricing_checked": "2026-11-11"
   }
 }

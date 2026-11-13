@@ -43,7 +43,8 @@ def transcribe(hosted, conv, headers, data=None):
 def test_browser_always_available_and_paid_requires_admin(hosted):
     bot, conv, headers = setup(hosted)
     assert hosted[3].get(f"/api/public/bots/{bot['id']}").json()["voice"] == {
-        "browser": True, "paid": False, "max_recording_seconds": 30, "max_speech_characters": 4000}
+        "browser": True, "paid": False, "paid_stt": False, "paid_tts": False,
+        "max_recording_seconds": 30, "max_speech_characters": 4000}
     assert transcribe(hosted, conv, headers).status_code == 403
     assert hosted[3].put("/api/organizations/school/sharing", json={"slug": "school", "paid_voice_enabled": True}).status_code == 404
     owner = hosted[4]("owner")
@@ -205,14 +206,47 @@ def test_aws_speech_respects_monthly_budget_and_keeps_failed_reservation(hosted,
         assert statuses == ["failed", "succeeded"]
 
 
-def test_http_speech_stays_blocked_by_budget_but_aws_is_not(hosted):
-    from asklit.hosted.speech import speech_configured
+def test_compatible_speech_is_metered_under_a_budget(hosted, monkeypatch):
+    from asklit.hosted.models import UsageEvent
     settings = hosted[0]
     settings.monthly_ai_budget_usd = 100
-    settings.speech_provider, settings.speech_api_key = "compatible", "k"
-    assert not speech_configured(settings)
-    settings.speech_provider = "aws"
-    assert speech_configured(settings)
+    bot, conv, headers = setup(hosted, paid=True)
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda s, kind, value: {"text": "Hi"} if kind == "transcribe" else b"ID3")
+    assert transcribe(hosted, conv, headers, recording(2)).status_code == 200
+    with hosted[1].transaction() as db:
+        event = db.scalar(select(UsageEvent).where(UsageEvent.purpose == "speech-transcribe"))
+        assert (event.preset, event.model, event.status) == ("compatible-stt", "tiny-test-transcribe", "succeeded")
+        assert event.estimated_cost_usd == pytest.approx(2 / 60 * 0.006)
+
+
+def test_each_direction_can_use_a_different_provider(hosted, monkeypatch):
+    from asklit.hosted.speech import provider_for, speech_cost, voice_policy
+    settings = hosted[0]
+    settings.speech_api_key = "k"
+    settings.speech_stt_provider, settings.speech_tts_provider = "aws", "compatible"
+    settings.speech_stt_model, settings.speech_tts_model = "", "gpt-4o-mini-tts"
+    assert (provider_for(settings, "transcribe"), provider_for(settings, "speak")) == ("aws", "compatible")
+    assert speech_cost(settings, "speak", "x" * 1000) == pytest.approx(1000 * 30 / 1_000_000)
+    assert speech_cost(settings, "transcribe", b"\0" * 44 + b"\0" * 32000) == pytest.approx(15 / 60 * 0.024)
+    settings.speech_tts_model = ""  # OpenAI-style TTS not configured, Transcribe still is
+    org = type("Org", (), {"paid_voice_enabled": True})()
+    assert voice_policy(org, settings)["paid_stt"] and not voice_policy(org, settings)["paid_tts"]
+    assert not voice_policy(org, settings)["paid"]
+    settings.speech_tts_model = "gpt-4o-mini-tts"
+    policy = voice_policy(org, settings)
+    assert policy["paid_stt"] and policy["paid_tts"] and policy["paid"]
+
+
+def test_tts_only_provider_rejects_transcribe_but_speaks(hosted, monkeypatch):
+    settings = hosted[0]
+    settings.speech_stt_model = ""  # only OpenAI TTS is configured; speech-to-text stays in the browser
+    bot, conv, headers = setup(hosted, paid=True)
+    settings.speech_stt_model = ""
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda s, k, v: b"ID3")
+    assert transcribe(hosted, conv, headers).status_code == 503
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "a"})
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "a"}).status_code == 200
 
 
 def test_aws_caps_speech_at_polly_limit_before_reserving(hosted, monkeypatch):

@@ -57,31 +57,43 @@ POLLY_MAX_CHARS = 3000  # SynthesizeSpeech bills at most 3,000 characters per re
 
 
 def max_speech_chars(settings):
-    return min(MAX_SPEECH_CHARS, POLLY_MAX_CHARS) if settings.speech_provider == "aws" else MAX_SPEECH_CHARS
+    return min(MAX_SPEECH_CHARS, POLLY_MAX_CHARS) if provider_for(settings, "speak") == "aws" else MAX_SPEECH_CHARS
+
+
+def provider_for(settings, kind):
+    """Each direction picks its own provider; empty falls back to ASKLIT_SPEECH_PROVIDER."""
+    return (settings.speech_stt_provider if kind == "transcribe" else settings.speech_tts_provider) or settings.speech_provider
+
+
+def kind_configured(settings, kind):
+    if provider_for(settings, kind) == "aws":
+        return True  # Uses the service's own AWS credentials.
+    model = settings.speech_stt_model if kind == "transcribe" else settings.speech_tts_model
+    return bool(settings.speech_api_key and model)
 
 
 def speech_configured(settings):
-    if settings.speech_provider == "aws":
-        return True  # Uses the service's own AWS credentials; every call is metered in USD.
-    if settings.monthly_ai_budget_usd is not None:
-        return False  # The HTTP adapter has no dollar metering; it cannot bypass the cap.
-    return bool(settings.speech_api_key and settings.speech_stt_model and settings.speech_tts_model)
+    return kind_configured(settings, "transcribe") or kind_configured(settings, "speak")
 
 
 def speech_cost(settings, kind, payload):
-    """Exact list-price cost of one call, known before it is made; None when speech is not metered."""
-    if settings.speech_provider != "aws":
-        return None
+    """Conservative list-price cost of one call, known before it is made. Every provider is metered in USD."""
+    aws = provider_for(settings, kind) == "aws"
     if kind == "transcribe":
-        seconds = max(TRANSCRIBE_MIN_BILLED_SECONDS, (len(payload) - 44) / 32000)  # 16 kHz mono 16-bit
-        return math.ceil(seconds) / 60 * settings.speech_stt_usd_per_minute
-    return len(payload) * settings.speech_tts_usd_per_million_chars / 1_000_000
+        audio_seconds = (len(payload) - 44) / 32000  # 16 kHz mono 16-bit
+        if aws:
+            return math.ceil(max(TRANSCRIBE_MIN_BILLED_SECONDS, audio_seconds)) / 60 * settings.speech_stt_usd_per_minute
+        return math.ceil(max(1, audio_seconds)) / 60 * settings.speech_compat_stt_usd_per_minute
+    rate = settings.speech_tts_usd_per_million_chars if aws else settings.speech_compat_tts_usd_per_million_chars
+    return len(payload) * rate / 1_000_000
 
 
 def speech_event_names(settings, kind):
-    if kind == "transcribe":
-        return "aws-transcribe", "transcribe-streaming:" + settings.speech_language
-    return "aws-polly", f"polly:{settings.speech_aws_engine}:{settings.speech_voice}"
+    if provider_for(settings, kind) == "aws":
+        if kind == "transcribe":
+            return "aws-transcribe", "transcribe-streaming:" + settings.speech_language
+        return "aws-polly", f"polly:{settings.speech_aws_engine}:{settings.speech_aws_voice}"
+    return ("compatible-stt", settings.speech_stt_model) if kind == "transcribe" else ("compatible-tts", settings.speech_tts_model)
 
 
 def record_speech_event(db, settings, org_id, bot, kind, cost):
@@ -113,14 +125,17 @@ def finish_speech_event(store, event_id, status, cost, elapsed):
 
 
 def voice_policy(org, settings):
-    return {"browser": True, "paid": bool(org.paid_voice_enabled and speech_configured(settings)),
+    enabled = bool(org.paid_voice_enabled)
+    stt, tts = enabled and kind_configured(settings, "transcribe"), enabled and kind_configured(settings, "speak")
+    # `paid` (both directions) stays for clients that only know the combined Service mode.
+    return {"browser": True, "paid": stt and tts, "paid_stt": stt, "paid_tts": tts,
             "max_recording_seconds": MAX_SECONDS, "max_speech_characters": max_speech_chars(settings)}
 
 
-def check_paid(org, settings):
+def check_paid(org, settings, kind):
     if not org.paid_voice_enabled:
         raise HTTPException(403, "Paid voice is disabled for this organization. Use browser voice.")
-    if not speech_configured(settings):
+    if not kind_configured(settings, kind):
         raise HTTPException(503, "Paid speech is not configured. Use browser voice.")
 
 
@@ -169,7 +184,7 @@ def reserve_speech(db, org, subject, request, settings):
 
 def provider_request(settings, kind, value):
     """No automatic retries: each request may incur a charge."""
-    if settings.speech_provider == "aws":
+    if provider_for(settings, kind) == "aws":
         return aws_request(settings, kind, value)
     key = settings.speech_api_key
     headers = {settings.speech_key_header: "Bearer " + key if settings.speech_key_header == "Authorization" else key}
@@ -215,7 +230,7 @@ def aws_request(settings, kind, value):
             client = boto3.session.Session().client("polly", region_name=settings.speech_region,
                 config=Config(connect_timeout=5, read_timeout=30, retries={"total_max_attempts": 1}))
             result = client.synthesize_speech(Text=value, TextType="text", OutputFormat="mp3",
-                                              VoiceId=settings.speech_voice, Engine=settings.speech_aws_engine)
+                                              VoiceId=settings.speech_aws_voice, Engine=settings.speech_aws_engine)
             data = result["AudioStream"].read(4 * 1024 * 1024 + 1)
             if not data or len(data) > 4 * 1024 * 1024:
                 raise ValueError()
@@ -269,7 +284,7 @@ def run_paid(store, settings, request, authorize, kind, value):
         with store.transaction() as db:
             org_id, subject, conv, bot = authorize(db)
             org = db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
-            check_paid(org, settings)
+            check_paid(org, settings, kind)
             if conv:
                 if conv.busy_until > time.time():
                     raise HTTPException(409, "Wait for the current request before using voice.")
@@ -292,7 +307,7 @@ def run_paid(store, settings, request, authorize, kind, value):
         finish_speech_event(store, event_id, "succeeded", cost, time.monotonic() - started)
         with store.transaction() as db:
             org_id, _, conv, _ = authorize(db)
-            check_paid(db.get(Organization, org_id), settings)
+            check_paid(db.get(Organization, org_id), settings, kind)
             if conv and (conv.active_request != lease or conv.busy_until <= time.time()):
                 raise HTTPException(409, "The speech request expired.")
         return result if kind == "transcribe" else Response(result, media_type="audio/mpeg", headers={"Cache-Control": "no-store"})

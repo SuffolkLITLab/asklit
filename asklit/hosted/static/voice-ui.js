@@ -2,7 +2,7 @@
 function mountVoicePanel(prefix, options) {
   const node = suffix => document.getElementById(prefix + "-voice-" + suffix);
   let answer = "", answerSources = [], answerId = "", busy = false, active = false;
-  const config = () => ({ mode: node("mode").value, loop: node("loop").checked,
+  const config = () => ({ listenMode: node("listen").value, speakMode: node("speak").value, loop: node("loop").checked,
     readReplies: node("read").checked, lang: node("lang").value || navigator.language });
   const voice = AskLitVoice.createVoiceController({
     workletUrl: "/static/voice-worklet.js",
@@ -16,24 +16,30 @@ function mountVoicePanel(prefix, options) {
       node("label").textContent = active ? "Stop voice" : "Start voice";
       node("toggle").disabled = busy && !active;
       node("status").textContent = state.stage;
-      node("finish").hidden = !(active && node("mode").value === "service" && state.stage === "Listening…");
+      node("finish").hidden = !(active && node("listen").value === "service" && state.stage === "Listening…");
       node("play").disabled = busy || active || !answer;
     },
   });
   node("toggle").onclick = () => active ? voice.stop() : void voice.start(config());
   node("play").onclick = () => void voice.read(answer, config(), answerSources);
   node("finish").onclick = () => voice.finish();
-  for (const key of ["mode", "loop", "read", "lang"]) node(key).onchange = () => {
+  for (const key of ["listen", "speak", "loop", "read", "lang"]) node(key).onchange = () => {
     voice.stop();
     node("hint").textContent = node("loop").checked
       ? "Speak naturally. Messages send automatically, and the microphone listens again after each reply. Use Stop voice to end."
       : "Dictation fills the message box. Review the text, then send.";
   };
   const poll = setInterval(async () => {
-    if (!active || node("mode").value !== "service") return;
+    if (!active || (node("listen").value !== "service" && node("speak").value !== "service")) return;
     try {
       const policy = await options.getPolicy();
-      if (!policy.paid) { voice.stop(); node("mode").value = "browser"; options.onError("Paid voice was disabled. Browser voice remains available."); }
+      const stt = policy.paid_stt ?? policy.paid, tts = policy.paid_tts ?? policy.paid;
+      if ((node("listen").value === "service" && !stt) || (node("speak").value === "service" && !tts)) {
+        voice.stop();
+        if (!stt) node("listen").value = "browser";
+        if (!tts) node("speak").value = "browser";
+        options.onError("Paid voice was disabled. Browser voice remains available.");
+      }
     } catch (e) { voice.stop(); options.onError(e.message); }
   }, 15000);
   window.addEventListener("pagehide", () => { clearInterval(poll); voice.destroy(); });
@@ -48,8 +54,10 @@ function mountVoicePanel(prefix, options) {
     },
     setAnswer(text, id = "", sources = []) { answer = text; answerId = id; answerSources = sources; node("play").disabled = busy || active || !answer; },
     setPolicy(policy) {
-      node("mode").querySelector('[value="service"]').disabled = !policy.paid;
-      if (!policy.paid && node("mode").value === "service") { voice.stop(); node("mode").value = "browser"; }
+      for (const [key, paid] of [["listen", policy.paid_stt ?? policy.paid], ["speak", policy.paid_tts ?? policy.paid]]) {
+        node(key).querySelector('[value="service"]').disabled = !paid;
+        if (!paid && node(key).value === "service") { voice.stop(); node(key).value = "browser"; }
+      }
     },
   };
 }

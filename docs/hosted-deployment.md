@@ -415,13 +415,32 @@ Then an organization administrator can enable paid voice in organization setting
 and set its daily speech-request allowance. Users explicitly select Service in
 the voice controls; browser failures never automatically incur paid speech costs.
 
+### Mixing providers (browser, AWS, OpenAI)
+
+Transcription and read-aloud are independent. On the page, **Transcribe my speech**
+and **Read replies aloud** each choose Browser or Paid service, so a user can
+dictate with the browser and hear an AI voice. On the server,
+`ASKLIT_SPEECH_STT_PROVIDER` and `ASKLIT_SPEECH_TTS_PROVIDER` (each `aws` or
+`compatible`) override `ASKLIT_SPEECH_PROVIDER` per direction. The voice policy
+reports `paid_stt` and `paid_tts` separately (`paid` means both).
+
+`compatible` speaks the OpenAI HTTP API (`/audio/transcriptions`, `/audio/speech`):
+set `ASKLIT_SPEECH_API_KEY`, `ASKLIT_SPEECH_BASE_URL` (default
+`https://api.openai.com/v1`), `ASKLIT_SPEECH_TTS_MODEL` (e.g. `gpt-4o-mini-tts`,
+`tts-1`) and/or `ASKLIT_SPEECH_STT_MODEL`, plus `ASKLIT_SPEECH_VOICE` (default
+`alloy`). Like AWS speech it is metered in USD against the monthly budget, using
+conservative rates `ASKLIT_SPEECH_COMPAT_TTS_USD_PER_MILLION_CHARS` (default $30;
+`gpt-4o-mini-tts` is roughly $17) and `ASKLIT_SPEECH_COMPAT_STT_USD_PER_MINUTE`
+(default $0.006). Lower them to your provider's real prices to meter tightly.
+`ASKLIT_SPEECH_AWS_VOICE` (default `Joanna`) is the Polly voice.
+
 ### AWS speech (Amazon Polly + Transcribe)
 
 Bedrock has no speech-to-text or text-to-speech endpoints, so the AWS provider uses
 Amazon Transcribe streaming and Amazon Polly with the service's existing AWS
 credentials (no speech API key). Set `ASKLIT_SPEECH_PROVIDER=aws`; optional
 `ASKLIT_SPEECH_REGION` (default `us-east-1`), `ASKLIT_SPEECH_LANGUAGE` (`en-US`),
-`ASKLIT_SPEECH_VOICE` (a Polly voice id, e.g. `Joanna`), and
+`ASKLIT_SPEECH_AWS_VOICE` (a Polly voice id, e.g. `Joanna`), and
 `ASKLIT_SPEECH_AWS_ENGINE` (`neural` or `standard`). The runtime IAM user needs
 `transcribe:StartStreamTranscription` and `polly:SynthesizeSpeech`.
 

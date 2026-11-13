@@ -94,11 +94,17 @@
       stop();
       options.onError?.(message instanceof Error ? message.message : message);
     }
-    async function check(version) {
-      const policy =
-        config.mode === 'service' ? await options.getPolicy() : { paid: false };
+    /* Transcription (listen) and read-aloud (speak) choose Browser or Service independently. */
+    function modes(value) {
+      const base = value.mode || 'browser';
+      return { ...value, listenMode: value.listenMode || base, speakMode: value.speakMode || base };
+    }
+    async function check(version, direction) {
+      const service = (direction === 'speak' ? config.speakMode : config.listenMode) === 'service';
+      const policy = service ? await options.getPolicy() : {};
       if (version !== epoch || !active) return false;
-      if (config.mode === 'service' && !policy.paid)
+      const allowed = direction === 'speak' ? policy.paid_tts ?? policy.paid : policy.paid_stt ?? policy.paid;
+      if (service && !allowed)
         throw new Error(
           'Paid voice is unavailable for this organization. Select Browser.'
         );
@@ -249,7 +255,7 @@
         if (!heard) return fail('No speech was detected. Try again.');
         state('Transcribing…');
         try {
-          if (!(await check(version))) return;
+          if (!(await check(version, 'listen'))) return;
           const text = await options.transcribe(audio);
           if (version === epoch) await received(text, version);
         } catch (e) {
@@ -284,9 +290,9 @@
     async function listen(version) {
       if (version !== epoch || !active) return;
       try {
-        if (!(await check(version))) return;
+        if (!(await check(version, 'listen'))) return;
         releasePlayback();
-        if (config.mode === 'service') await serviceListen(version);
+        if (config.listenMode === 'service') await serviceListen(version);
         else browserListen(version);
       } catch (e) {
         if (version === epoch) fail(e);
@@ -294,7 +300,7 @@
     }
     async function start(value) {
       stop();
-      config = { mode: 'browser', loop: false, readReplies: true, ...value };
+      config = modes({ mode: 'browser', loop: false, readReplies: true, ...value });
       active = true;
       turns = 0;
       const version = epoch;
@@ -323,14 +329,14 @@
         );
       state('Speaking…');
       try {
-        if (!(await check(version))) return;
+        if (!(await check(version, 'speak'))) return;
         playbackTimer = setTimeout(
           () => {
             if (version === epoch) fail('Speech playback timed out.');
           },
           Math.max(120000, text.length * 100)
         );
-        if (config.mode === 'service') {
+        if (config.speakMode === 'service') {
           const blob = await options.synthesize(text);
           if (version !== epoch || !active) return;
           audioUrl = env.URL.createObjectURL(blob);
@@ -373,7 +379,7 @@
     }
     async function read(text, value, sources) {
       stop();
-      config = { mode: 'browser', ...value, readReplies: true, loop: false };
+      config = modes({ mode: 'browser', ...value, readReplies: true, loop: false });
       active = true;
       await reply(text, sources);
     }

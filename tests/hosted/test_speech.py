@@ -182,13 +182,13 @@ def test_aws_speech_is_metered_in_dollars(hosted, monkeypatch):
     with hosted[1].transaction() as db:
         events = {e.purpose: e for e in db.scalars(select(UsageEvent).where(UsageEvent.purpose.like("speech-%")))}
         assert events["speech-transcribe"].status == "succeeded"
-        assert events["speech-transcribe"].estimated_cost_usd == pytest.approx(15 / 60 * 0.01)
+        assert events["speech-transcribe"].estimated_cost_usd == pytest.approx(15 / 60 * 0.024)
         assert events["speech-speak"].estimated_cost_usd == pytest.approx(len("Grounded answer") * 16 / 1_000_000)
 
 
 def test_aws_speech_respects_monthly_budget_and_keeps_failed_reservation(hosted, monkeypatch):
     from asklit.hosted.models import UsageEvent
-    bot, conv, headers = aws_setup(hosted, budget=0.006)  # room for two 15 s transcriptions ($0.0025 each), not three
+    bot, conv, headers = aws_setup(hosted, budget=0.013)  # room for two 15 s transcriptions ($0.006 each), not three
     attempts = []
     def provider(settings, kind, value):
         attempts.append(kind)
@@ -196,7 +196,7 @@ def test_aws_speech_respects_monthly_budget_and_keeps_failed_reservation(hosted,
             raise HTTPException(502, "down")
         return {"text": "ok"}
     monkeypatch.setattr("asklit.hosted.speech.provider_request", provider)
-    assert transcribe(hosted, conv, headers).status_code == 502  # failed call still holds $0.0025
+    assert transcribe(hosted, conv, headers).status_code == 502  # failed call still holds $0.006
     assert transcribe(hosted, conv, headers).status_code == 200
     assert transcribe(hosted, conv, headers).status_code == 429  # budget exhausted before the provider is called
     assert attempts == ["transcribe", "transcribe"]
@@ -213,3 +213,25 @@ def test_http_speech_stays_blocked_by_budget_but_aws_is_not(hosted):
     assert not speech_configured(settings)
     settings.speech_provider = "aws"
     assert speech_configured(settings)
+
+
+def test_aws_caps_speech_at_polly_limit_before_reserving(hosted, monkeypatch):
+    from asklit.hosted.models import UsageEvent
+    _, conv, headers = aws_setup(hosted)
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda *a: pytest.fail("must not reach Polly"))
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "long"})
+    with hosted[1].transaction() as db:
+        db.get(Turn, (conv["id"], "long")).result = {"answer": "x" * 3001}
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "long"}).status_code == 422
+    with hosted[1].transaction() as db:
+        assert not list(db.scalars(select(UsageEvent).where(UsageEvent.purpose == "speech-speak")))
+        assert not list(db.scalars(select(RateBucket).where(RateBucket.key.like("speech:%"))))
+
+
+def test_nonfinite_speech_rates_are_rejected():
+    from asklit.hosted.settings import Settings
+    for field in ("speech_stt_usd_per_minute", "speech_tts_usd_per_million_chars"):
+        for bad in (float("nan"), float("inf"), 0.0, -1.0):
+            with pytest.raises(ValueError):
+                Settings(database_url="sqlite://", secret_key="x" * 40, **{field: bad})

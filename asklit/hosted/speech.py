@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import io
 import json
+import logging
 import math
 import threading
 import time
@@ -26,6 +27,13 @@ SLOTS = threading.BoundedSemaphore(4)
 
 
 TRANSCRIBE_MIN_BILLED_SECONDS = 15  # Amazon Transcribe streaming bills at least 15 s per request.
+
+
+POLLY_MAX_CHARS = 3000  # SynthesizeSpeech bills at most 3,000 characters per request
+
+
+def max_speech_chars(settings):
+    return min(MAX_SPEECH_CHARS, POLLY_MAX_CHARS) if settings.speech_provider == "aws" else MAX_SPEECH_CHARS
 
 
 def speech_configured(settings):
@@ -56,6 +64,8 @@ def record_speech_event(db, settings, org_id, bot, kind, cost):
     """Reserve cost against the monthly budget and write the ledger row in the caller's transaction."""
     from .budget import reserve_amount
     reserved = reserve_amount(db, settings, cost)
+    if reserved is None:
+        reserved = cost  # No budget: still a known, bounded cost, not a $1 legacy unknown.
     preset, model = speech_event_names(settings, kind)
     event = UsageEvent(org_id=org_id, bot_id=bot.id, owner_id=bot.owner_id, purpose="speech-" + kind,
                        preset=preset, model=model, budget_reserved_usd=reserved)
@@ -80,7 +90,7 @@ def finish_speech_event(store, event_id, status, cost, elapsed):
 
 def voice_policy(org, settings):
     return {"browser": True, "paid": bool(org.paid_voice_enabled and speech_configured(settings)),
-            "max_recording_seconds": MAX_SECONDS, "max_speech_characters": MAX_SPEECH_CHARS}
+            "max_recording_seconds": MAX_SECONDS, "max_speech_characters": max_speech_chars(settings)}
 
 
 def check_paid(org, settings):
@@ -190,7 +200,8 @@ def aws_request(settings, kind, value):
         if not text or len(text) > 8000 or "\x00" in text:
             raise ValueError()
         return {"text": text}
-    except Exception:
+    except Exception as exc:
+        logging.getLogger("asklit.speech").warning("AWS speech %s failed: %s", kind, type(exc).__name__)
         raise HTTPException(502, "The speech service could not complete this request. Try browser voice.") from None
 
 
@@ -241,7 +252,7 @@ def run_paid(store, settings, request, authorize, kind, value):
                 conversation_id = conv.id
             # Prepare/validate under the capability before reserving paid usage.
             payload = value(db, conv)
-            if kind == "speak" and (not isinstance(payload, str) or not 0 < len(payload) <= MAX_SPEECH_CHARS):
+            if kind == "speak" and (not isinstance(payload, str) or not 0 < len(payload) <= max_speech_chars(settings)):
                 raise HTTPException(422, "This answer is too long for paid speech. Use browser read-aloud.")
             reserve_speech(db, org, subject, request, settings)
             cost = speech_cost(settings, kind, payload)

@@ -429,7 +429,7 @@ Unlike the HTTP adapter, AWS speech is metered in dollars and counts against
 `ASKLIT_MONTHLY_AI_BUDGET_USD`. Cost is known before the call: Polly bills per input
 character (`ASKLIT_SPEECH_TTS_USD_PER_MILLION_CHARS`, default $16 neural) and
 Transcribe streaming per second of audio with a 15-second minimum per request
-(`ASKLIT_SPEECH_STT_USD_PER_MINUTE`, default $0.01). Each call writes a usage event
+(`ASKLIT_SPEECH_STT_USD_PER_MINUTE`, default $0.024). Each call writes a usage event
 (`speech-transcribe` / `speech-speak`) and reserves its cost atomically under the
 same monthly lock as chat; failed or interrupted calls keep their reservation.
 Rates are list prices; reconcile with the AWS invoice and update them if AWS

@@ -3,6 +3,7 @@
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import UUID
@@ -21,6 +22,7 @@ class Settings:
     speech_daily_calls: int = 1000
     trust_fly_proxy: bool = False
     require_author_approval: bool = False
+    open_registration_until: str = ""
     dev_mode: bool = False
     dev_username: str = "dev@asklit.local"
     dev_password: str = field(default="asklit", repr=False)
@@ -50,6 +52,11 @@ class Settings:
 
     def __post_init__(self):
         import math
+        if self.open_registration_until:
+            try:
+                if date.fromisoformat(self.open_registration_until).isoformat() != self.open_registration_until:raise ValueError()
+            except ValueError:
+                raise ValueError("ASKLIT_OPEN_REGISTRATION_UNTIL must be a date in YYYY-MM-DD format.") from None
         if self.monthly_ai_budget_usd is not None and (not math.isfinite(self.monthly_ai_budget_usd) or self.monthly_ai_budget_usd <= 0):
             raise ValueError("Monthly AI budget must be a finite positive USD amount.")
         speech_url = urlparse(self.speech_base_url)
@@ -145,6 +152,13 @@ class Settings:
                     )
 
     @property
+    def approval_required(self):
+        """Re-evaluated per request/call; expiry does not require a restart."""
+        return self.require_author_approval and not (
+            self.open_registration_until and datetime.now(timezone.utc).date() < date.fromisoformat(self.open_registration_until)
+        )
+
+    @property
     def secure(self):
         return self.base_url.startswith("https://")
 
@@ -194,7 +208,8 @@ class Settings:
             speech_daily_calls=int(os.getenv("ASKLIT_SPEECH_DAILY_CALLS", "1000")),
             dev_mode=dev_mode,
             trust_fly_proxy=os.getenv("ASKLIT_TRUST_FLY_PROXY", "false").lower() == "true",
-            require_author_approval=os.getenv("ASKLIT_REQUIRE_AUTHOR_APPROVAL", "false").lower() == "true",
+            open_registration_until=os.getenv("ASKLIT_OPEN_REGISTRATION_UNTIL", "").strip(),
+            require_author_approval=os.getenv("ASKLIT_REQUIRE_AUTHOR_APPROVAL", "false" if dev_mode else "true").lower() == "true",
             dev_username=os.getenv("ASKLIT_DEV_USERNAME", "dev@asklit.local"),
             dev_password=os.getenv("ASKLIT_DEV_PASSWORD", "asklit"),
             secret_key=secret,

@@ -117,7 +117,7 @@ def enqueue(db, bot, kind, payload):
 
 
 def approved_owner(db, settings, user_id):
-    if not settings.require_author_approval: return
+    if not settings.approval_required: return
     owner = db.scalar(select(User).where(User.id == user_id).with_for_update(read=True))
     if not owner or not owner.author_approved:
         raise HTTPException(403, "The author needs hosting approval.")

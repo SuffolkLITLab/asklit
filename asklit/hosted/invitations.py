@@ -50,7 +50,7 @@ def invitation_router(settings,store):
         with store.transaction() as db:
             invite=valid_invitation(db,body.token)
             org=db.get(Organization,invite.org_id)
-            return {'organization':org.name,'org_id':org.id,'role':invite.role,'email':invite.recipient_email,'hosting_approved':invite.grants_hosting,'local_signup':bool(org.local_accounts_enabled and invite.grants_hosting and invite.recipient_email),'expires':invite.expires}
+            return {'approval_required':settings.approval_required,'organization':org.name,'org_id':org.id,'role':invite.role,'email':invite.recipient_email,'hosting_approved':invite.grants_hosting,'local_signup':bool(org.local_accounts_enabled and invite.grants_hosting and invite.recipient_email),'expires':invite.expires}
 
     @router.post('/register')
     def register(body: InvitationSignup,request: Request):

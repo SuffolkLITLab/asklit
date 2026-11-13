@@ -132,7 +132,7 @@ def meter(store, bot, purpose):
 def begin_call(settings, preset, model, messages=None):
     context=_usage_context.get()
     if context is None:
-        if settings.require_author_approval or settings.monthly_ai_budget_usd is not None:raise RuntimeError('Model call requires a usage context.')
+        if settings.approval_required or settings.monthly_ai_budget_usd is not None:raise RuntimeError('Model call requires a usage context.')
         return None
     store,org_id,bot_id,purpose=context
     with store.transaction() as db:
@@ -140,7 +140,7 @@ def begin_call(settings, preset, model, messages=None):
         if not org or org.archived:raise HTTPException(403,"This organization is archived.")
         bot=db.get(Bot,bot_id)
         owner=db.get(User,bot.owner_id) if bot else None
-        if settings.require_author_approval and (not owner or not owner.author_approved):
+        if settings.approval_required and (not owner or not owner.author_approved):
             raise HTTPException(403,'The author must be approved for hosting before using AI services.')
         from .budget import reserve_budget
         reservation = reserve_budget(db, settings, model, messages)

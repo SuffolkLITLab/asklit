@@ -266,6 +266,7 @@ async function refreshMe() {
   const selected = $("org").value;
   me = await api("/me");
   $("operator").hidden = !me.platform_admin;
+  $("hosting-approvals").hidden = !me.approval_required;
   $("change-password").hidden = !me.local_account;
   $("new-org").hidden = me.local_account;
   $("new-bot").disabled = !me.organizations.length;
@@ -1438,7 +1439,7 @@ async function showInvitation(raw) {
   try {
     const value = await api("/invitations/inspect", "POST", {token: raw});
     $("invitation-title").textContent = `Join ${value.organization}`;
-    $("invitation-description").textContent = `You’re invited as ${value.role === "member" ? "an author" : "an " + value.role}${value.email ? " using " + value.email : ""}. ${value.hosting_approved ? "Hosting approval is included." : "Hosting requires separate approval."}`;
+    $("invitation-description").textContent = `You’re invited as ${value.role === "member" ? "an author" : "an " + value.role}${value.email ? " using " + value.email : ""}. ${value.approval_required ? (value.hosting_approved ? "Hosting approval is included." : "Hosting requires separate approval.") : ""}`;
     $("invitation-email").value = value.email || "";
     $("invitation-email").readOnly = !!value.email;
     $("invitation-register").hidden = !!me || !value.local_signup;
@@ -1635,6 +1636,7 @@ function renderUsage(target, report) {
 }
 async function operatorUsage() { renderUsage($("operator-usage"), await api(`/operator/usage?days=${$("operator-usage-days").value}`)); }
 async function approvalAccounts() {
+  if (!me?.approval_required) return;
   const generation = ++approvalGeneration;
   const query = new URLSearchParams({page: String(accountPage), q: $("approval-query").value.trim(), status: $("approval-status").value});
   const data=await api(`/operator/accounts?${query}`);
@@ -1705,7 +1707,7 @@ async function adminOrganizations() {
   for (const label of ["Organization", "Members", "AI requests", "Estimated AI cost", ""]) head.append(el("th", label));
   const thead = el("thead");thead.append(head);table.append(thead);
   for (const org of data.organizations) {
-    const row = el("tr");row.append(el("td", `${org.name}${org.slug ? " /" + org.slug + "/" : ""}`),el("td", `${org.members} (${org.approved_members} approved)`),el("td", String(org.requests)),el("td", `$${org.estimated_cost_usd.toFixed(4)}${org.unknown_cost_requests ? " + unknown costs" : ""}`));
+    const row = el("tr");row.append(el("td", `${org.name}${org.slug ? " /" + org.slug + "/" : ""}`),el("td", `${org.members}${me.approval_required ? " (" + org.approved_members + " approved)" : ""}`),el("td", String(org.requests)),el("td", `$${org.estimated_cost_usd.toFixed(4)}${org.unknown_cost_requests ? " + unknown costs" : ""}`));
     const controls = el("td");controls.append(action("Members, invitations & usage", () => openAdminSchool(org)));controls.append(action(org.archived ? "Restore" : "Archive", () => orgLifecycle(org, org.archived ? "restore" : "archive")));if(org.archived) controls.append(action("Delete permanently", () => orgLifecycle(org, "delete")));row.append(controls);body.append(row);
   }
   table.append(body);const wrap=el("div",undefined,"usage-table");wrap.append(table);target.append(wrap);
@@ -1717,11 +1719,11 @@ async function refreshAdminSchool() {
   if (adminSchool?.id !== org.id) return;
   $("admin-school-members").replaceChildren();
   if (!members.length) $("admin-school-members").append(el("p", "No members yet. Invite the school’s first author or administrator.", "muted"));
-  for (const member of members) $("admin-school-members").append(el("p", `${member.name} · ${member.email} · ${member.role} · ${member.approved ? "Approved" : "Pending approval"}`));
+  for (const member of members) $("admin-school-members").append(el("p", `${member.name} · ${member.email} · ${member.role}${me.approval_required ? " · " + (member.approved ? "Approved" : "Pending approval") : ""}`));
   $("admin-school-invitations").replaceChildren();
   if (!invites.length) $("admin-school-invitations").append(el("p", "No pending invitations.", "muted"));
   for (const invite of invites) {
-    const row=el("div",undefined,"row");row.append(el("span", `${invite.email || "Anyone with the link"} · ${invite.role} · ${invite.hosting_approved ? "hosting approved" : "hosting approval required"} · expires ${new Date(invite.expires*1000).toLocaleDateString()}`),action("Revoke",async () => {await api(`/operator/organizations/${org.id}/invitations/${invite.id}`,"DELETE");await refreshAdminSchool();}));$("admin-school-invitations").append(row);
+    const row=el("div",undefined,"row");row.append(el("span", `${invite.email || "Anyone with the link"} · ${invite.role}${me.approval_required ? " · " + (invite.hosting_approved ? "hosting approved" : "hosting approval required") : ""} · expires ${new Date(invite.expires*1000).toLocaleDateString()}`),action("Revoke",async () => {await api(`/operator/organizations/${org.id}/invitations/${invite.id}`,"DELETE");await refreshAdminSchool();}));$("admin-school-invitations").append(row);
   }
   renderUsage($("admin-school-usage"), usage);
 }
@@ -1805,3 +1807,15 @@ $("org-lifecycle-form").onsubmit=async event=>{
     $("org-lifecycle-dialog").close();await refreshMe();await adminOrganizations();
   } catch(error) {$("org-lifecycle-error").textContent=error.message;} finally {button.disabled=false;}
 };
+
+if ($("registration-form")) {
+  bind("open-registration",()=>{$("registration-error").textContent="";$("registration-dialog").showModal();});
+  bind("registration-close",()=>$("registration-dialog").close());
+  $("registration-form").onsubmit=async event=>{
+    event.preventDefault();const button=$("registration-submit");button.disabled=true;
+    try {
+      await api("/register","POST",{name:$("registration-name").value,email:$("registration-email").value,password:$("registration-password").value,csrf:$("registration-csrf").value});
+      $("registration-password").value="";$("registration-dialog").close();await refreshMe();await dashboard();
+    } catch(error){$("registration-error").textContent=error.message;} finally {button.disabled=false;}
+  };
+}

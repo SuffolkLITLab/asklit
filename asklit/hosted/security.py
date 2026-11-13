@@ -32,7 +32,7 @@ def login_session(db, request, mutation=False):
     settings = request.app.state.settings
     path = request.url.path
     author_routes = path.startswith("/api/") and path not in {"/api/me", "/api/logout", "/api/account/password", "/api/gallery", "/api/invitations/accept"} and not path.startswith(("/api/public/", "/api/gallery/"))
-    if settings.require_author_approval and author_routes:
+    if settings.approval_required and author_routes:
         user = db.get(User, session.user_id)
         if not user or not user.author_approved:
             raise HTTPException(403, "Hosting approval is required. Email litlab@suffolk.edu to request approval and discuss the hosting fee.")

@@ -373,6 +373,7 @@ def public_router(settings, store, runtime):
             active = (
                 current_bot
                 and not current_bot.archived
+                and not db.get(Organization, current_bot.org_id).archived
                 and current_bot.published_id
                 and conversation_allowed(db, current_bot, conv, settings)
             )

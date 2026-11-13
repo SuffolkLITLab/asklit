@@ -105,3 +105,29 @@ def test_hidden_references_remain_available_to_authors_and_evaluation(hosted):
     assert result['sources'][0]['filename']=='packet.txt'
     doc.embeddings=[[-1,0]]
     assert len(hosted[2].retrieve([doc],config['profiles'][0],'And then?',3))==1
+
+def test_malformed_presentation_import_is_rejected(hosted):
+    import yaml
+    bot=new_bot(hosted)
+    c=hosted[3];path='/api/bots/'+bot['id']+'/workspace'
+    workspace=yaml.safe_load(c.get(path).text)
+    workspace['asklit_workspace']['app_config']['hosted_presentation']=['invalid']
+    response=c.post(path,json={'version':bot['version'],'yaml':yaml.safe_dump(workspace)})
+    assert response.status_code==422
+
+
+def test_org_archived_during_answer_releases_turn(hosted):
+    from asklit.hosted.models import Organization, Turn, Conversation
+    bot=new_bot(hosted);publish(hosted,bot)
+    c=hosted[3]
+    conv=c.post('/api/public/bots/'+bot['id']+'/conversations',json={}).json()
+    def archive_during_answer(messages,preset):
+        with hosted[1].transaction() as db:
+            db.get(Organization,'school').archived=True
+        return 'Completed after archive'
+    hosted[2].completion=archive_during_answer
+    reply=c.post('/api/public/conversations/'+conv['id']+'/messages',headers={'Authorization':'Bearer '+conv['token']},json={'message':'hello','request_id':'archive'})
+    assert reply.status_code==404
+    with hosted[1].transaction() as db:
+        assert db.get(Turn,(conv['id'],'archive')).status=='failed'
+        assert db.get(Conversation,conv['id']).busy_until==0

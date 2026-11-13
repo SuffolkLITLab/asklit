@@ -55,9 +55,12 @@ def read_workspace(value, settings):
 
     imported = import_workspace_yaml(value)
     source = imported["app_config"]
+    presentation = source.get("hosted_presentation") or {}
+    if not isinstance(presentation, dict):
+        raise ValueError("Presentation settings must be a mapping.")
     config = BotConfig(
-        show_citations=source.get("hosted_presentation", {}).get("show_citations", True),
-        student_instructions=source.get("hosted_presentation", {}).get("student_instructions", ""),
+        show_citations=presentation.get("show_citations", True),
+        student_instructions=presentation.get("student_instructions", ""),
         title=source.get("app", {}).get("title", "Imported AskLit"),
         welcome=source.get("app", {}).get("welcome_message", "How can I help you?"),
         model_preset=next(iter(settings.models)),

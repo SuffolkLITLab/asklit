@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import wave
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import httpx
@@ -17,7 +18,7 @@ from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import select
 
-from .models import Bot, Conversation, Organization, RateBucket, Turn, UsageEvent
+from .models import Bot, Conversation, Organization, RateBucket, Revision, Turn, UsageEvent
 from .schemas import SpeechRequest
 from .security import accessible_bot, login_session, token
 
@@ -124,12 +125,39 @@ def finish_speech_event(store, event_id, status, cost, elapsed):
         # A failed or interrupted call may still be billed: keep the reservation as its cost.
 
 
-def voice_policy(org, settings):
+def instructor_voice(config):
+    """What the instructor chose for this AskLit. Voice is on by default with free browser modes; paid voice needs the instructor to choose Service."""
+    config = config or {}
+    return {"enabled": config.get("voice_enabled", True), "listen": config.get("voice_listen", "browser"),
+            "speak": config.get("voice_speak", "browser"), "persona": config.get("voice_persona", "neutral")}
+
+
+def bot_voice_rules(db, bot, published=True):
+    """Published settings govern participants; the draft governs the author's own preview."""
+    revision = db.get(Revision, bot.published_id) if published and bot.published_id else None
+    return instructor_voice(revision.config if revision else bot.draft)
+
+
+def voice_policy(org, settings, rules=None):
     enabled = bool(org.paid_voice_enabled)
     stt, tts = enabled and kind_configured(settings, "transcribe"), enabled and kind_configured(settings, "speak")
     # `paid` (both directions) stays for clients that only know the combined Service mode.
-    return {"browser": True, "paid": stt and tts, "paid_stt": stt, "paid_tts": tts,
-            "max_recording_seconds": MAX_SECONDS, "max_speech_characters": max_speech_chars(settings)}
+    policy = {"browser": True, "paid": stt and tts, "paid_stt": stt, "paid_tts": tts,
+              "max_recording_seconds": MAX_SECONDS, "max_speech_characters": max_speech_chars(settings)}
+    if rules is not None:  # participants: the instructor's choices are fixed
+        policy.update(locked=True, enabled=bool(rules["enabled"]), persona=rules["persona"],
+                      listen_mode="service" if rules["listen"] == "service" and stt else "browser",
+                      speak_mode="service" if rules["speak"] == "service" and tts else "browser")
+    return policy
+
+
+def persona_settings(settings, persona):
+    """Settings with the voice for the instructor's persona; neutral keeps the operator defaults."""
+    if persona == "feminine":
+        return replace(settings, speech_voice=settings.speech_voice_feminine, speech_aws_voice=settings.speech_aws_voice_feminine)
+    if persona == "masculine":
+        return replace(settings, speech_voice=settings.speech_voice_masculine, speech_aws_voice=settings.speech_aws_voice_masculine)
+    return settings
 
 
 def check_paid(org, settings, kind):
@@ -285,6 +313,10 @@ def run_paid(store, settings, request, authorize, kind, value):
             org_id, subject, conv, bot = authorize(db)
             org = db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
             check_paid(org, settings, kind)
+            rules = bot_voice_rules(db, bot, published=conv is not None)
+            if conv is not None and (not rules["enabled"] or rules["listen" if kind == "transcribe" else "speak"] != "service"):
+                raise HTTPException(403, "Your instructor has not enabled paid voice for this AskLit. Use browser voice.")
+            settings = persona_settings(settings, rules["persona"]) if kind == "speak" else settings
             if conv:
                 if conv.busy_until > time.time():
                     raise HTTPException(409, "Wait for the current request before using voice.")
@@ -331,8 +363,8 @@ def add_public_speech_routes(router, settings, store, authorize_conversation):
     @router.get("/conversations/{conversation_id}/voice")
     def policy(conversation_id: str, request: Request):
         with store.transaction() as db:
-            org_id, _, _, _ = authorize(db, conversation_id, request)
-            return voice_policy(db.get(Organization, org_id), settings)
+            org_id, _, _, bot = authorize(db, conversation_id, request)
+            return voice_policy(db.get(Organization, org_id), settings, bot_voice_rules(db, bot))
 
     @router.post("/conversations/{conversation_id}/transcribe")
     def transcribe(conversation_id: str, request: Request, file: UploadFile = File(...)):

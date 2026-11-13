@@ -173,6 +173,10 @@ function readConfig() {
   readProfile();
   Object.assign(bot.config, {
     show_citations: $("show-citations").checked,
+    voice_enabled: $("voice-enabled").checked,
+    voice_listen: $("voice-listen").value,
+    voice_speak: $("voice-speak").value,
+    voice_persona: $("voice-persona").value,
     student_instructions: $("student-instructions").value,
     title: $("title").value,
     welcome: $("welcome").value,
@@ -316,6 +320,10 @@ async function openBot(id) {
   availableModels().forEach((m) => option($("model"), m, me.model_labels?.[m] || m));
   $("model").value = bot.config.model_preset;
   $("show-citations").checked = bot.config.show_citations !== false;
+  $("voice-enabled").checked = bot.config.voice_enabled !== false;
+  $("voice-listen").value = bot.config.voice_listen || "browser";
+  $("voice-speak").value = bot.config.voice_speak || "browser";
+  $("voice-persona").value = bot.config.voice_persona || "neutral";
   $("student-instructions").value = bot.config.student_instructions || "";
   $("instructor-notes").value = bot.instructor_notes || "";
   $("instructor-shared").checked = !!bot.instructor_shared;

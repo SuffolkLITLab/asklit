@@ -21,7 +21,7 @@ from .access import (
     require_access,
 )
 from .security import digest, reserve_calls, token
-from .speech import voice_policy, add_public_speech_routes
+from .speech import voice_policy, instructor_voice, add_public_speech_routes
 from .usage import meter
 from .uploads import (MAX_BYTES, MAX_CHARS, MAX_FILES, convert_upload, filename_for, reserve_upload, upload_metadata)
 
@@ -89,7 +89,7 @@ def public_router(settings, store, runtime):
         return {
             **common,
             "uploads": upload_metadata(config),
-            "voice": voice_policy(db.get(Organization, bot.org_id), settings),
+            "voice": voice_policy(db.get(Organization, bot.org_id), settings, instructor_voice(config)),
             "title": config["title"],
             "welcome": config["welcome"],
             "student_instructions": config.get("student_instructions", ""),

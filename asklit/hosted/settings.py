@@ -25,6 +25,11 @@ class Settings:
     speech_stt_provider: str = ""  # per-direction overrides; empty inherits speech_provider
     speech_tts_provider: str = ""
     speech_aws_voice: str = "Joanna"
+    # Instructor "voice persona" choices; neutral uses the voices above. Override for non-OpenAI providers.
+    speech_voice_feminine: str = "nova"
+    speech_voice_masculine: str = "echo"
+    speech_aws_voice_feminine: str = "Joanna"
+    speech_aws_voice_masculine: str = "Matthew"
     # OpenAI-compatible list prices, deliberately conservative: gpt-4o-mini-tts is roughly $17 per million
     # characters of speech and tts-1-hd $30; gpt-4o-mini-transcribe is $0.003/min, whisper-1/gpt-4o-transcribe $0.006.
     speech_compat_tts_usd_per_million_chars: float = 30.0
@@ -231,6 +236,10 @@ class Settings:
             speech_tts_model=os.getenv("ASKLIT_SPEECH_TTS_MODEL", ""),
             speech_voice=os.getenv("ASKLIT_SPEECH_VOICE", "alloy"),
             speech_aws_voice=os.getenv("ASKLIT_SPEECH_AWS_VOICE", "Joanna"),
+            speech_voice_feminine=os.getenv("ASKLIT_SPEECH_VOICE_FEMININE", "nova"),
+            speech_voice_masculine=os.getenv("ASKLIT_SPEECH_VOICE_MASCULINE", "echo"),
+            speech_aws_voice_feminine=os.getenv("ASKLIT_SPEECH_AWS_VOICE_FEMININE", "Joanna"),
+            speech_aws_voice_masculine=os.getenv("ASKLIT_SPEECH_AWS_VOICE_MASCULINE", "Matthew"),
             speech_stt_provider=os.getenv("ASKLIT_SPEECH_STT_PROVIDER", "").strip().lower(),
             speech_tts_provider=os.getenv("ASKLIT_SPEECH_TTS_PROVIDER", "").strip().lower(),
             speech_compat_tts_usd_per_million_chars=float(os.getenv("ASKLIT_SPEECH_COMPAT_TTS_USD_PER_MILLION_CHARS", "30.0")),

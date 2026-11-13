@@ -1,9 +1,9 @@
 /* Small DOM adapter; the voice lifecycle is shared with the static React client. */
 function mountVoicePanel(prefix, options) {
   const node = suffix => document.getElementById(prefix + "-voice-" + suffix);
-  let answer = "", answerSources = [], answerId = "", busy = false, active = false;
+  let answer = "", answerSources = [], answerId = "", busy = false, active = false, persona = "neutral";
   const config = () => ({ listenMode: node("listen").value, speakMode: node("speak").value, loop: node("loop").checked,
-    readReplies: node("read").checked, lang: node("lang").value || navigator.language });
+    readReplies: node("read").checked, lang: node("lang").value || navigator.language, persona });
   const voice = AskLitVoice.createVoiceController({
     workletUrl: "/static/voice-worklet.js",
     getPolicy: options.getPolicy,
@@ -57,6 +57,16 @@ function mountVoicePanel(prefix, options) {
       for (const [key, paid] of [["listen", policy.paid_stt ?? policy.paid], ["speak", policy.paid_tts ?? policy.paid]]) {
         node(key).querySelector('[value="service"]').disabled = !paid;
         if (!paid && node(key).value === "service") { voice.stop(); node(key).value = "browser"; }
+      }
+      persona = policy.persona || "neutral";
+      const panel = document.getElementById(prefix + "-voice-panel");
+      if (panel) panel.hidden = policy.enabled === false;
+      if (policy.enabled === false) voice.stop();
+      if (policy.locked) {  // the instructor chose these; participants only see the result
+        for (const [key, mode] of [["listen", policy.listen_mode], ["speak", policy.speak_mode]]) {
+          node(key).value = mode;
+          node(key).closest("label").hidden = true;
+        }
       }
     },
   };

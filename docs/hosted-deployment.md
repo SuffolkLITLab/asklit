@@ -415,6 +415,23 @@ Then an organization administrator can enable paid voice in organization setting
 and set its daily speech-request allowance. Users explicitly select Service in
 the voice controls; browser failures never automatically incur paid speech costs.
 
+### Instructor voice controls
+
+Each AskLit has a **Voice for participants** section (Studio → Assistant). Instructors
+can switch voice off, choose Browser or Paid service separately for transcription and
+read-aloud, and pick a voice persona (neutral, feminine, masculine). Participants
+never see these choices, are never required to use voice, and cannot override them:
+the paid endpoints reject any call the instructor did not choose, so calling the API
+directly does not bypass the setting. Settings are read from the published version.
+
+Browser voice is free and needs no opt-in, so it is on by default. Paid voice applies
+only when the instructor chooses Paid service *and* the organization administrator
+has enabled paid voice. The persona picks a provider voice: OpenAI `nova`/`echo`
+(`ASKLIT_SPEECH_VOICE_FEMININE`/`_MASCULINE`) and Polly `Joanna`/`Matthew`
+(`ASKLIT_SPEECH_AWS_VOICE_FEMININE`/`_MASCULINE`); neutral keeps the operator default.
+Browsers expose no voice gender, so there the persona is matched by well-known voice
+names, best effort.
+
 ### Mixing providers (browser, AWS, OpenAI)
 
 Transcription and read-aloud are independent. On the page, **Transcribe my speech**

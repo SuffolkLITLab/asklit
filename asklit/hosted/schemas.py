@@ -47,6 +47,11 @@ class GenerateScenarios(Strict):
 
 class BotConfig(Strict):
     show_citations: bool = True
+    # Instructor-controlled voice. Participants cannot change these.
+    voice_enabled: bool = True  # master switch; free browser voice needs no opt-in, and nobody is required to use it
+    voice_listen: Literal["browser", "service"] = "browser"
+    voice_speak: Literal["browser", "service"] = "browser"
+    voice_persona: Literal["neutral", "feminine", "masculine"] = "neutral"
     student_instructions: str = Field(default="", max_length=30000)
     uploads_enabled: bool = False
     upload_prompt: str = Field(default="", max_length=4000)

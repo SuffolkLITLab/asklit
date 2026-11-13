@@ -34,6 +34,26 @@
       .replace(/[,;:]+\s*([.!?])/g, '$1');
     return out.trim();
   }
+  /* Browsers expose no gender metadata, so a persona is matched by well-known voice names (best effort). */
+  const FEMININE = /\b(samantha|karen|moira|tessa|victoria|susan|zira|jenny|aria|hazel|fiona|allison|ava|nicky|female|woman)\b/i;
+  const MASCULINE = /\b(daniel|alex|fred|david|mark|guy|ryan|tom|oliver|aaron|arthur|rishi|male|man)\b/i;
+  function pickVoice(voices, lang, persona) {
+    const language = (lang || '').slice(0, 2).toLowerCase();
+    const pool = voices.filter(
+      (v) => v.lang === lang || v.lang?.slice(0, 2).toLowerCase() === language
+    );
+    const wanted = persona === 'feminine' ? FEMININE : persona === 'masculine' ? MASCULINE : null;
+    const best = (list) => list.find((v) => v.localService) || list[0];
+    if (wanted) {
+      const match = pool.filter((v) => wanted.test(v.name) && !(persona === 'masculine' && FEMININE.test(v.name)));
+      if (match.length) return best(match);
+    }
+    return (
+      voices.find((v) => v.localService && v.lang === lang) ||
+      voices.find((v) => v.lang === lang) ||
+      null
+    );
+  }
   function createVoiceController(options) {
     const env = options.env || window;
     let epoch = 0,
@@ -360,11 +380,11 @@
             if (index >= chunks.length) return complete();
             const utterance = new env.SpeechSynthesisUtterance(chunks[index++]);
             utterance.lang = config.lang || env.navigator.language || 'en-US';
-            const voices = env.speechSynthesis.getVoices();
-            utterance.voice =
-              voices.find((v) => v.localService && v.lang === utterance.lang) ||
-              voices.find((v) => v.lang === utterance.lang) ||
-              null;
+            utterance.voice = pickVoice(
+              env.speechSynthesis.getVoices(),
+              utterance.lang,
+              config.persona
+            );
             utterance.onend = next;
             utterance.onerror = () => {
               if (version === epoch) fail('Read-aloud stopped. Try again.');
@@ -407,5 +427,5 @@
       },
     };
   }
-  return { createVoiceController, speakable };
+  return { createVoiceController, speakable, pickVoice };
 });

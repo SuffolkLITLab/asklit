@@ -20,12 +20,19 @@ def recording(seconds=1, rate=16000, channels=1):
     return out.getvalue()
 
 
-def setup(hosted, paid=False, limit=100):
+def setup(hosted, paid=False, limit=100, voice=("service", "service", "neutral")):
+    """voice=None leaves the instructor's voice settings at their defaults (off)."""
     settings, store = hosted[:2]
     settings.speech_api_key = "test-only-key"
     settings.speech_stt_model = "tiny-test-transcribe"
     settings.speech_tts_model = "tiny-test-tts"
     bot = new_bot(hosted)
+    if voice:
+        listen, speak, persona = voice
+        saved = hosted[4]("alice").put(f"/api/bots/{bot['id']}", json={"version": bot["version"], "config": {
+            **bot["config"], "voice_enabled": True, "voice_listen": listen, "voice_speak": speak, "voice_persona": persona}})
+        assert saved.status_code == 200, saved.text
+        bot = saved.json()
     publish(hosted, bot)
     with store.transaction() as db:
         org = db.get(Organization, "school")
@@ -44,7 +51,8 @@ def test_browser_always_available_and_paid_requires_admin(hosted):
     bot, conv, headers = setup(hosted)
     assert hosted[3].get(f"/api/public/bots/{bot['id']}").json()["voice"] == {
         "browser": True, "paid": False, "paid_stt": False, "paid_tts": False,
-        "max_recording_seconds": 30, "max_speech_characters": 4000}
+        "max_recording_seconds": 30, "max_speech_characters": 4000, "locked": True, "enabled": True,
+        "persona": "neutral", "listen_mode": "browser", "speak_mode": "browser"}
     assert transcribe(hosted, conv, headers).status_code == 403
     assert hosted[3].put("/api/organizations/school/sharing", json={"slug": "school", "paid_voice_enabled": True}).status_code == 404
     owner = hosted[4]("owner")
@@ -295,3 +303,52 @@ def test_aws_read_aloud_never_sends_source_mentions(hosted, monkeypatch):
     monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda settings, kind, value: seen.append(value) or b"ID3")
     assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "cited"}).status_code == 200
     assert seen == ["file by Friday. agrees."] or all(w not in seen[0] for w in ("Guide.pdf", "[1]", "Source"))
+
+
+def test_browser_voice_needs_no_opt_in_but_paid_voice_does(hosted, monkeypatch):
+    bot, conv, headers = setup(hosted, paid=True, voice=None)  # instructor never touched the voice settings
+    policy = hosted[3].get(f"/api/public/bots/{bot['id']}").json()["voice"]
+    assert policy["enabled"] is True and policy["locked"] is True
+    assert (policy["listen_mode"], policy["speak_mode"]) == ("browser", "browser")
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda *a: pytest.fail("paid voice was never chosen"))
+    assert transcribe(hosted, conv, headers).status_code == 403
+
+
+def test_instructor_can_turn_voice_off(hosted):
+    bot, _, _ = setup(hosted, paid=True)
+    c = hosted[4]("alice")
+    current = c.get(f"/api/bots/{bot['id']}").json()
+    assert c.put(f"/api/bots/{bot['id']}", json={"version": current["version"], "config": {**current["config"], "voice_enabled": False}}).status_code == 200
+    assert c.post(f"/api/bots/{bot['id']}/publish", json={"version": c.get(f"/api/bots/{bot['id']}").json()["version"]}).status_code == 200
+    assert hosted[3].get(f"/api/public/bots/{bot['id']}").json()["voice"]["enabled"] is False
+
+
+def test_instructor_chooses_the_kind_of_voice_and_students_cannot_override(hosted, monkeypatch):
+    bot, conv, headers = setup(hosted, paid=True, voice=("browser", "service", "neutral"))
+    policy = hosted[3].get(f"/api/public/bots/{bot['id']}").json()["voice"]
+    assert (policy["listen_mode"], policy["speak_mode"]) == ("browser", "service")
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda *a: pytest.fail("transcription is browser-only"))
+    assert transcribe(hosted, conv, headers).status_code == 403  # a student calling the endpoint directly
+    assert hosted[3].get(f"/api/public/conversations/{conv['id']}/voice", headers=headers).json()["listen_mode"] == "browser"
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda s, k, v: b"ID3")
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "r"})
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "r"}).status_code == 200
+
+
+@pytest.mark.parametrize("persona,openai,polly", [("feminine", "nova", "Joanna"), ("masculine", "echo", "Matthew"), ("neutral", "alloy", "Ivy")])
+def test_voice_persona_selects_the_provider_voice(hosted, monkeypatch, persona, openai, polly):
+    hosted[0].speech_voice, hosted[0].speech_aws_voice = "alloy", "Ivy"
+    _, conv, headers = setup(hosted, paid=True, voice=("browser", "service", persona))
+    seen = []
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda s, k, v: seen.append((s.speech_voice, s.speech_aws_voice)) or b"ID3")
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "r"})
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "r"}).status_code == 200
+    assert seen == [(openai, polly)] if persona != "neutral" else seen == [("alloy", "Ivy")]
+
+
+def test_author_preview_ignores_the_published_lock_but_uses_the_draft_persona(hosted):
+    bot, _, _ = setup(hosted, paid=True, voice=("browser", "browser", "masculine"))
+    policy = hosted[3].get(f"/api/bots/{bot['id']}/voice").json()
+    assert policy["persona"] == "masculine" and "locked" not in policy

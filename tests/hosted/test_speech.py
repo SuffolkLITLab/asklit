@@ -235,3 +235,29 @@ def test_nonfinite_speech_rates_are_rejected():
         for bad in (float("nan"), float("inf"), 0.0, -1.0):
             with pytest.raises(ValueError):
                 Settings(database_url="sqlite://", secret_key="x" * 40, **{field: bad})
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("According to Dossier.pdf, page 3, you can appeal within 60 days.", "you can appeal within 60 days."),
+    ("You have 60 days [1] to appeal (Source 2).", "You have 60 days to appeal."),
+    ("Per the file handbook.docx p. 4, the limit is $2,000.", "the limit is $2,000."),
+    ("Bring your notice, see Sources 1 and 2.", "Bring your notice."),
+    ("Nothing to strip here, version 2.0 is fine.", "Nothing to strip here, version 2.0 is fine."),
+])
+def test_spoken_text_drops_source_mentions_only(text, expected):
+    from asklit.hosted.speech import spoken_text
+    assert spoken_text(text, [{"filename": "Dossier.pdf"}]) == expected
+
+
+def test_aws_read_aloud_never_sends_source_mentions(hosted, monkeypatch):
+    _, conv, headers = aws_setup(hosted)
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "cited"})
+    with hosted[1].transaction() as db:
+        db.get(Turn, (conv["id"], "cited")).result = {
+            "answer": "According to Guide.pdf, page 2, file by Friday [1]. Source 3 agrees.",
+            "sources": [{"filename": "Guide.pdf", "page": 2, "content": "x"}]}
+    seen = []
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda settings, kind, value: seen.append(value) or b"ID3")
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "cited"}).status_code == 200
+    assert seen == ["file by Friday. agrees."] or all(w not in seen[0] for w in ("Guide.pdf", "[1]", "Source"))

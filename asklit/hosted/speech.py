@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import math
+import re
 import threading
 import time
 import wave
@@ -27,6 +28,29 @@ SLOTS = threading.BoundedSemaphore(4)
 
 
 TRANSCRIBE_MIN_BILLED_SECONDS = 15  # Amazon Transcribe streaming bills at least 15 s per request.
+
+
+_FILE = r"[\w.\-]+\.(?:pdf|docx?|txt|md|pptx|xlsx|csv|html?|odt)"
+_PAGE = r"(?:\s*,?\s*(?:pages?|pp?\.)\s*\d+(?:\s*[-\u2013]\s*\d+)?)?"
+_LEAD = r"(?:(?:according to|based on|per|from|in|see|as (?:stated|described) in)\s+(?:the\s+)?(?:(?:document|file|source)\s+)?)?"
+_NUM = r"#?\d+(?:\s*(?:,|and|&|-)\s*#?\d+)*"
+
+
+def spoken_text(text, sources=()):
+    """The answer without source mentions, for read-aloud only; the chat text is never changed.
+    Keep in sync with speakable() in static/voice.js."""
+    names = sorted({str(s.get("filename")) for s in (sources or ()) if isinstance(s, dict) and s.get("filename")}, key=len, reverse=True)
+    for name in names:
+        text = re.sub(_LEAD + re.escape(name) + _PAGE + r"\s*,?", " ", text, flags=re.I)
+    text = re.sub(_LEAD + _FILE + _PAGE + r"\s*,?", " ", text, flags=re.I)
+    text = re.sub(r"\((?:see\s+)?(?:sources?|pages?|pp?\.)[^)]*\)", " ", text, flags=re.I)
+    text = re.sub(r"\[\s*\d+(?:\s*[,;\u2013-]\s*\d+)*\s*\]", " ", text)
+    text = re.sub(_LEAD + r"\bsources?\s*" + _NUM + r"\s*,?", " ", text, flags=re.I)
+    text = re.sub(r"\(\s*[,;]?\s*\)", " ", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(r"[,;:]+\s*([.!?])", r"\1", text)
+    return text.strip()
 
 
 POLLY_MAX_CHARS = 3000  # SynthesizeSpeech bills at most 3,000 characters per request
@@ -306,7 +330,7 @@ def add_public_speech_routes(router, settings, store, authorize_conversation):
             turn = db.get(Turn, (conv.id, body.request_id))
             if not turn or turn.status != "succeeded":
                 raise HTTPException(404, "Answer not found.")
-            return turn.result["answer"]
+            return spoken_text(turn.result["answer"], turn.result.get("sources"))
         return run_paid(store, settings, request, lambda db: authorize(db, conversation_id, request), "speak", answer)
 
 
@@ -323,4 +347,4 @@ def add_preview_speech_routes(router, settings, store):
 
     @router.post("/bots/{bot_id}/preview/speech")
     def speak(bot_id: str, request: Request, body: SpeechRequest):
-        return run_paid(store, settings, request, lambda db: authorize(db, bot_id, request), "speak", lambda db, conv: body.text)
+        return run_paid(store, settings, request, lambda db: authorize(db, bot_id, request), "speak", lambda db, conv: spoken_text(body.text))

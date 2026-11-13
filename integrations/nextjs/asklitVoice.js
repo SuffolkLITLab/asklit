@@ -4,6 +4,36 @@
   else root.AskLitVoice = factory();
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
+  const FILE = '[\\w.\\-]+\\.(?:pdf|docx?|txt|md|pptx|xlsx|csv|html?|odt)';
+  const PAGE = '(?:\\s*,?\\s*(?:pages?|pp?\\.)\\s*\\d+(?:\\s*[-\\u2013]\\s*\\d+)?)?';
+  const LEAD =
+    '(?:(?:according to|based on|per|from|in|see|as (?:stated|described) in)\\s+(?:the\\s+)?(?:(?:document|file|source)\\s+)?)?';
+  const NUM = '#?\\d+(?:\\s*(?:,|and|&|-)\\s*#?\\d+)*';
+  const escapeRe = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /* The answer without source mentions, for read-aloud only. Keep in sync with spoken_text() in speech.py. */
+  function speakable(text, sources) {
+    let out = String(text || '');
+    const names = [
+      ...new Set(
+        (Array.isArray(sources) ? sources : [])
+          .map(s => s && s.filename)
+          .filter(Boolean)
+          .map(String)
+      ),
+    ].sort((a, b) => b.length - a.length);
+    for (const name of names)
+      out = out.replace(new RegExp(LEAD + escapeRe(name) + PAGE + '\\s*,?', 'gi'), ' ');
+    out = out
+      .replace(new RegExp(LEAD + FILE + PAGE + '\\s*,?', 'gi'), ' ')
+      .replace(/\((?:see\s+)?(?:sources?|pages?|pp?\.)[^)]*\)/gi, ' ')
+      .replace(/\[\s*\d+(?:\s*[,;\u2013-]\s*\d+)*\s*\]/g, ' ')
+      .replace(new RegExp(LEAD + '\\bsources?\\s*' + NUM + '\\s*,?', 'gi'), ' ')
+      .replace(/\(\s*[,;]?\s*\)/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/[,;:]+\s*([.!?])/g, '$1');
+    return out.trim();
+  }
   function createVoiceController(options) {
     const env = options.env || window;
     let epoch = 0,
@@ -275,7 +305,8 @@
       }, 600000);
       await listen(version);
     }
-    async function reply(text) {
+    async function reply(rawText, sources) {
+      const text = speakable(rawText, sources);
       if (!active) return;
       const version = epoch;
       releaseCapture();
@@ -340,11 +371,11 @@
         if (version === epoch) fail(e);
       }
     }
-    async function read(text, value) {
+    async function read(text, value, sources) {
       stop();
       config = { mode: 'browser', ...value, readReplies: true, loop: false };
       active = true;
-      await reply(text);
+      await reply(text, sources);
     }
     const hidden = () => {
       if (env.document?.hidden) stop();
@@ -370,5 +401,5 @@
       },
     };
   }
-  return { createVoiceController };
+  return { createVoiceController, speakable };
 });

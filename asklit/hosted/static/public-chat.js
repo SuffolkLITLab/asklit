@@ -199,10 +199,10 @@ $("chat-send").onsubmit = async (event) => {
     pending = null;
     append("user", question);
     append("assistant", result.answer, result.sources);
-    chatVoice.setAnswer(result.answer, retry.request_id);
+    chatVoice.setAnswer(result.answer, retry.request_id, result.sources);
     retry = null;
     $("chat-question").value = "";
-    await chatVoice.reply(result.answer);
+    await chatVoice.reply(result.answer, result.sources);
   } catch (e) {
     chatVoice.stop();
     if (e.status && !["turn_pending", "conversation_busy"].includes(e.code))

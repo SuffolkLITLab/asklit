@@ -1,7 +1,7 @@
 /* Small DOM adapter; the voice lifecycle is shared with the static React client. */
 function mountVoicePanel(prefix, options) {
   const node = suffix => document.getElementById(prefix + "-voice-" + suffix);
-  let answer = "", answerId = "", busy = false, active = false;
+  let answer = "", answerSources = [], answerId = "", busy = false, active = false;
   const config = () => ({ mode: node("mode").value, loop: node("loop").checked,
     readReplies: node("read").checked, lang: node("lang").value || navigator.language });
   const voice = AskLitVoice.createVoiceController({
@@ -21,7 +21,7 @@ function mountVoicePanel(prefix, options) {
     },
   });
   node("toggle").onclick = () => active ? voice.stop() : void voice.start(config());
-  node("play").onclick = () => void voice.read(answer, config());
+  node("play").onclick = () => void voice.read(answer, config(), answerSources);
   node("finish").onclick = () => voice.finish();
   for (const key of ["mode", "loop", "read", "lang"]) node(key).onchange = () => {
     voice.stop();
@@ -40,13 +40,13 @@ function mountVoicePanel(prefix, options) {
   return {
     stop: () => voice.stop(),
     wait: () => voice.wait(),
-    reply: text => voice.reply(text),
+    reply: (text, sources) => voice.reply(text, sources),
     setBusy(value) {
       busy = value;
       node("toggle").disabled = busy && !active;
       node("play").disabled = busy || active || !answer;
     },
-    setAnswer(text, id = "") { answer = text; answerId = id; node("play").disabled = busy || active || !answer; },
+    setAnswer(text, id = "", sources = []) { answer = text; answerId = id; answerSources = sources; node("play").disabled = busy || active || !answer; },
     setPolicy(policy) {
       node("mode").querySelector('[value="service"]').disabled = !policy.paid;
       if (!policy.paid && node("mode").value === "service") { voice.stop(); node("mode").value = "browser"; }

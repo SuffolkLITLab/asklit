@@ -500,3 +500,34 @@ the service's AI budget. A minimal service audit records the deletion.
 Private document and export keys are queued atomically with deletion. The worker
 removes these files in bounded batches outside database locks, retrying storage
 failures on later passes. Keep the worker running to complete cleanup.
+
+### Open registration and trial end date
+
+`ASKLIT_REQUIRE_AUTHOR_APPROVAL=true` is the normal production policy. An optional
+`ASKLIT_OPEN_REGISTRATION_UNTIL=2027-01-01` temporarily waives it until that date
+at 00:00 UTC, allowing sign-in and local **Create account** registration without
+hosting approval. The end date is checked on requests and model calls; no restart
+is needed when the date arrives. Signup creates a separate workspace, never joins
+an existing school, and does not verify an email domain or grant operator access.
+
+During open registration, login/terms copy reflects the trial and Admin's hosting
+approval panel and approval status labels are hidden. Existing explicit approvals
+are retained. Trial signup does not set permanent approval: when the trial ends,
+unapproved authors need approval to edit, publish, or use hosted models. Saved
+content remains. The global AI budget and ordinary usage limits stay enabled.
+
+The Suffolk trial is configured through December 2026 using a Fly secret. Extend
+it without changing code:
+
+```sh
+fly secrets set --app asklit-studio ASKLIT_OPEN_REGISTRATION_UNTIL=2027-02-01
+```
+
+For indefinite open registration, set `ASKLIT_REQUIRE_AUTHOR_APPROVAL=false`.
+To restore approval immediately when the base policy remains `true`, remove the
+trial override with `fly secrets unset --app asklit-studio ASKLIT_OPEN_REGISTRATION_UNTIL`.
+If you previously changed the base policy to false, restore it to true as well.
+Fly secret changes restart machines; the runtime date check itself needs no deploy.
+Public signup uses CSRF protection, hashed passwords, and shared registration
+attempt limits (10 per IP and 200 across the service per fifteen-minute window).
+Local login emails remain unverified and are not used to establish school access.

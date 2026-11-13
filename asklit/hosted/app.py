@@ -148,6 +148,8 @@ def create_app(settings=None, store=None, runtime=None):
     from .admin_organizations import admin_organizations_router
     from .invitations import invitation_router
     app.include_router(admin_organizations_router(settings, store))
+    from .registration import registration_router
+    app.include_router(registration_router(settings, store))
     from .organization_lifecycle import lifecycle_router
     app.include_router(lifecycle_router(settings, store))
     app.include_router(invitation_router(settings, store))
@@ -169,7 +171,7 @@ def create_app(settings=None, store=None, runtime=None):
     @app.get("/terms", response_class=HTMLResponse)
     def terms(request: Request):
         return templates.TemplateResponse(
-            request=request, name="legal.html", context={"page": "terms"},
+            request=request, name="legal.html", context={"page": "terms", "require_author_approval": settings.approval_required, "open_registration_until": settings.open_registration_until if settings.require_author_approval else ""},
         )
 
     @app.get("/", response_class=HTMLResponse)
@@ -183,6 +185,8 @@ def create_app(settings=None, store=None, runtime=None):
             name="index.html",
             context={
                 "dev_mode": settings.dev_mode,
+                "require_author_approval": settings.approval_required,
+                "open_registration_until": settings.open_registration_until if settings.require_author_approval else "",
                 "local_login_csrf": request.session.get("local_login_csrf", ""),
                 "login_error": request.query_params.get("login_error") == "1",
                 "google": bool(settings.google_client_id),

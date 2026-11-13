@@ -277,3 +277,9 @@ model permissions), and `ai_provider_quota_exceeded` (AWS service quota).
 Provider error text is never exposed: it may contain sensitive request details.
 A provider access denial is not automatically classified as budget exhaustion,
 since missing model permissions produce the same AWS error code.
+
+Open registration is temporarily enabled by the Fly secret
+`ASKLIT_OPEN_REGISTRATION_UNTIL=2027-01-01` (exclusive UTC end date). The base
+`ASKLIT_REQUIRE_AUTHOR_APPROVAL=true` in `fly.hosted.toml` takes effect again when
+the trial expires. Change the date secret to extend; set the approval flag false
+for indefinite open registration. See the hosted guide's registration section.

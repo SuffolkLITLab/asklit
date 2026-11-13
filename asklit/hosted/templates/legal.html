@@ -25,8 +25,12 @@
 {% else %}
 <h1>Terms of service</h1><p class="muted">Updated November 11, 2026</p>
 <p>These terms apply to the hosted AskLit service operated by the Legal Innovation &amp; Technology Lab at Suffolk University Law School. By using the service, you agree to these terms and acknowledge the <a href="/privacy">privacy policy</a>.</p>
-<h2>Hosting approval and fees</h2>
+<h2>Hosting and fees</h2>
+{% if require_author_approval %}
 <p>Authors may not host an AskLit for free on the suffolklitlab.org domain. Hosted author accounts require LIT Lab approval and a small fee to recover hosting and AI usage costs. Email <a href="mailto:litlab@suffolk.edu?subject=AskLit%20hosting%20approval">litlab@suffolk.edu</a> to request approval. We will discuss the fee, included usage, and any additional usage charges with you before enabling hosting. Creating a sign-in identity does not grant hosting approval or start a payment.</p>
+{% else %}
+<p>Account creation is open, and no hosting approval or fee is required during this trial. Usage limits still apply. {% if open_registration_until %}The trial is scheduled to end at 00:00 UTC on {{ open_registration_until }}, unless extended. {% endif %}Hosting may require approval and an agreed fee after the trial. We will discuss any fees with you before charging; creating an account does not authorize a payment.</p>
+{% endif %}
 <p>We monitor request volume, token usage, and estimated AI costs. Usage allowances and hosting approval may be adjusted or suspended. Exact charges and payment arrangements are agreed separately; the usage dashboard is an estimate of provider cost, not an invoice. These author-hosting fees do not by themselves charge visitors for using a published assistant.</p>
 <h2>Using AskLit</h2>
 <p>AskLit provides tools to create and use AI assistants. You are responsible for your account credentials, the content you submit, and the assistants you publish. Use only materials you have permission to upload and share. Respect other people's privacy and intellectual property. Do not use the service for unlawful activity, to bypass access controls, to distribute malicious files, or to disrupt the service.</p>

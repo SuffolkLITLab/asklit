@@ -1,8 +1,10 @@
 """Optional paid speech; browser speech is always available without these endpoints."""
+import asyncio
 import hashlib
 import hmac
 import io
 import json
+import math
 import threading
 import time
 import wave
@@ -13,7 +15,7 @@ from fastapi import File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import select
 
-from .models import Bot, Conversation, Organization, RateBucket, Turn
+from .models import Bot, Conversation, Organization, RateBucket, Turn, UsageEvent
 from .schemas import SpeechRequest
 from .security import accessible_bot, login_session, token
 
@@ -23,10 +25,57 @@ MAX_SPEECH_CHARS = 4000
 SLOTS = threading.BoundedSemaphore(4)
 
 
+TRANSCRIBE_MIN_BILLED_SECONDS = 15  # Amazon Transcribe streaming bills at least 15 s per request.
+
+
 def speech_configured(settings):
+    if settings.speech_provider == "aws":
+        return True  # Uses the service's own AWS credentials; every call is metered in USD.
     if settings.monthly_ai_budget_usd is not None:
-        return False  # Paid speech has no dollar metering yet; cannot bypass the cap.
+        return False  # The HTTP adapter has no dollar metering; it cannot bypass the cap.
     return bool(settings.speech_api_key and settings.speech_stt_model and settings.speech_tts_model)
+
+
+def speech_cost(settings, kind, payload):
+    """Exact list-price cost of one call, known before it is made; None when speech is not metered."""
+    if settings.speech_provider != "aws":
+        return None
+    if kind == "transcribe":
+        seconds = max(TRANSCRIBE_MIN_BILLED_SECONDS, (len(payload) - 44) / 32000)  # 16 kHz mono 16-bit
+        return math.ceil(seconds) / 60 * settings.speech_stt_usd_per_minute
+    return len(payload) * settings.speech_tts_usd_per_million_chars / 1_000_000
+
+
+def speech_event_names(settings, kind):
+    if kind == "transcribe":
+        return "aws-transcribe", "transcribe-streaming:" + settings.speech_language
+    return "aws-polly", f"polly:{settings.speech_aws_engine}:{settings.speech_voice}"
+
+
+def record_speech_event(db, settings, org_id, bot, kind, cost):
+    """Reserve cost against the monthly budget and write the ledger row in the caller's transaction."""
+    from .budget import reserve_amount
+    reserved = reserve_amount(db, settings, cost)
+    preset, model = speech_event_names(settings, kind)
+    event = UsageEvent(org_id=org_id, bot_id=bot.id, owner_id=bot.owner_id, purpose="speech-" + kind,
+                       preset=preset, model=model, budget_reserved_usd=reserved)
+    db.add(event)
+    db.flush()
+    return event.id
+
+
+def finish_speech_event(store, event_id, status, cost, elapsed):
+    if not event_id:
+        return
+    with store.transaction() as db:
+        event = db.get(UsageEvent, event_id)
+        if event is None:
+            return  # Deleted organization: the reservation stays in the anonymous totals.
+        event.status = status
+        event.latency_ms = int(elapsed * 1000)
+        if status == "succeeded":
+            event.estimated_cost_usd = cost
+        # A failed or interrupted call may still be billed: keep the reservation as its cost.
 
 
 def voice_policy(org, settings):
@@ -86,6 +135,8 @@ def reserve_speech(db, org, subject, request, settings):
 
 def provider_request(settings, kind, value):
     """No automatic retries: each request may incur a charge."""
+    if settings.speech_provider == "aws":
+        return aws_request(settings, kind, value)
     key = settings.speech_api_key
     headers = {settings.speech_key_header: "Bearer " + key if settings.speech_key_header == "Authorization" else key}
     if kind == "transcribe":
@@ -122,14 +173,66 @@ def provider_request(settings, kind, value):
         raise HTTPException(502, "The speech service could not complete this request. Try browser voice.") from None
 
 
+def aws_request(settings, kind, value):
+    try:
+        if kind == "speak":
+            import boto3
+            from botocore.config import Config
+            client = boto3.session.Session().client("polly", region_name=settings.speech_region,
+                config=Config(connect_timeout=5, read_timeout=30, retries={"total_max_attempts": 1}))
+            result = client.synthesize_speech(Text=value, TextType="text", OutputFormat="mp3",
+                                              VoiceId=settings.speech_voice, Engine=settings.speech_aws_engine)
+            data = result["AudioStream"].read(4 * 1024 * 1024 + 1)
+            if not data or len(data) > 4 * 1024 * 1024:
+                raise ValueError()
+            return data
+        text = asyncio.run(asyncio.wait_for(aws_transcribe(settings, value), 45)).strip()
+        if not text or len(text) > 8000 or "\x00" in text:
+            raise ValueError()
+        return {"text": text}
+    except Exception:
+        raise HTTPException(502, "The speech service could not complete this request. Try browser voice.") from None
+
+
+async def aws_transcribe(settings, wav):
+    """Stream a validated 16 kHz mono PCM recording to Amazon Transcribe and return the final transcript."""
+    from amazon_transcribe.client import TranscribeStreamingClient
+    from amazon_transcribe.handlers import TranscriptResultStreamHandler
+
+    class Collect(TranscriptResultStreamHandler):
+        def __init__(self, stream):
+            super().__init__(stream)
+            self.parts = []
+
+        async def handle_transcript_event(self, event):
+            for result in event.transcript.results:
+                if not result.is_partial and result.alternatives:
+                    self.parts.append(result.alternatives[0].transcript)
+
+    with wave.open(io.BytesIO(wav), "rb") as reader:
+        pcm = reader.readframes(reader.getnframes())
+    client = TranscribeStreamingClient(region=settings.speech_region)
+    stream = await client.start_stream_transcription(language_code=settings.speech_language,
+                                                     media_sample_rate_hz=16000, media_encoding="pcm")
+
+    async def send():
+        for start in range(0, len(pcm), 16000):  # 0.5 s chunks
+            await stream.input_stream.send_audio_event(audio_chunk=pcm[start:start + 16000])
+        await stream.input_stream.end_stream()
+
+    handler = Collect(stream.output_stream)
+    await asyncio.gather(send(), handler.handle_events())
+    return " ".join(handler.parts)
+
+
 def run_paid(store, settings, request, authorize, kind, value):
     if not SLOTS.acquire(blocking=False):
         raise HTTPException(429, "Speech services are busy. Try browser voice.")
     lease = "speech-" + token()
-    conversation_id = None
+    conversation_id = event_id = cost = None
     try:
         with store.transaction() as db:
-            org_id, subject, conv = authorize(db)
+            org_id, subject, conv, bot = authorize(db)
             org = db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
             check_paid(org, settings)
             if conv:
@@ -141,11 +244,19 @@ def run_paid(store, settings, request, authorize, kind, value):
             if kind == "speak" and (not isinstance(payload, str) or not 0 < len(payload) <= MAX_SPEECH_CHARS):
                 raise HTTPException(422, "This answer is too long for paid speech. Use browser read-aloud.")
             reserve_speech(db, org, subject, request, settings)
+            cost = speech_cost(settings, kind, payload)
+            event_id = record_speech_event(db, settings, org_id, bot, kind, cost) if cost is not None else None
             if conv:
                 conv.active_request, conv.busy_until = lease, time.time() + 120
-        result = provider_request(settings, kind, payload)
+        started = time.monotonic()
+        try:
+            result = provider_request(settings, kind, payload)
+        except BaseException:
+            finish_speech_event(store, event_id, "failed", cost, time.monotonic() - started)
+            raise
+        finish_speech_event(store, event_id, "succeeded", cost, time.monotonic() - started)
         with store.transaction() as db:
-            org_id, _, conv = authorize(db)
+            org_id, _, conv, _ = authorize(db)
             check_paid(db.get(Organization, org_id), settings)
             if conv and (conv.active_request != lease or conv.busy_until <= time.time()):
                 raise HTTPException(409, "The speech request expired.")
@@ -164,12 +275,13 @@ def run_paid(store, settings, request, authorize, kind, value):
 def add_public_speech_routes(router, settings, store, authorize_conversation):
     def authorize(db, conversation_id, request):
         conv = authorize_conversation(db, conversation_id, request)
-        return db.get(Bot, conv.bot_id).org_id, "chat:" + conv.id, conv
+        bot = db.get(Bot, conv.bot_id)
+        return bot.org_id, "chat:" + conv.id, conv, bot
 
     @router.get("/conversations/{conversation_id}/voice")
     def policy(conversation_id: str, request: Request):
         with store.transaction() as db:
-            org_id, _, _ = authorize(db, conversation_id, request)
+            org_id, _, _, _ = authorize(db, conversation_id, request)
             return voice_policy(db.get(Organization, org_id), settings)
 
     @router.post("/conversations/{conversation_id}/transcribe")
@@ -191,7 +303,7 @@ def add_preview_speech_routes(router, settings, store):
     def authorize(db, bot_id, request):
         session = login_session(db, request, True)
         bot = accessible_bot(db, bot_id, session.user_id)
-        return bot.org_id, "author:" + session.user_id, None
+        return bot.org_id, "author:" + session.user_id, None, bot
 
     @router.post("/bots/{bot_id}/preview/transcribe")
     def transcribe(bot_id: str, request: Request, file: UploadFile = File(...)):

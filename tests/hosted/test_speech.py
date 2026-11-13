@@ -160,3 +160,56 @@ def test_provider_adapter_bounded_and_no_error_echo(hosted, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         provider_request(settings, "speak", "Answer")
     assert "test-only-secret" not in exc.value.detail
+
+
+def aws_setup(hosted, budget=None):
+    settings = hosted[0]
+    settings.speech_provider = "aws"
+    settings.monthly_ai_budget_usd = budget
+    return setup(hosted, paid=True)
+
+
+def test_aws_speech_is_metered_in_dollars(hosted, monkeypatch):
+    from asklit.hosted.models import UsageEvent
+    from asklit.hosted.budget import budget_report
+    hosted[0].speech_api_key = ""  # AWS credentials come from the environment, not a speech key
+    bot, conv, headers = aws_setup(hosted)
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda settings, kind, value: {"text": "Hi"} if kind == "transcribe" else b"ID3")
+    assert transcribe(hosted, conv, headers, recording(2)).status_code == 200  # billed at the 15-second minimum
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "answer"})
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "answer"}).status_code == 200
+    with hosted[1].transaction() as db:
+        events = {e.purpose: e for e in db.scalars(select(UsageEvent).where(UsageEvent.purpose.like("speech-%")))}
+        assert events["speech-transcribe"].status == "succeeded"
+        assert events["speech-transcribe"].estimated_cost_usd == pytest.approx(15 / 60 * 0.01)
+        assert events["speech-speak"].estimated_cost_usd == pytest.approx(len("Grounded answer") * 16 / 1_000_000)
+
+
+def test_aws_speech_respects_monthly_budget_and_keeps_failed_reservation(hosted, monkeypatch):
+    from asklit.hosted.models import UsageEvent
+    bot, conv, headers = aws_setup(hosted, budget=0.006)  # room for two 15 s transcriptions ($0.0025 each), not three
+    attempts = []
+    def provider(settings, kind, value):
+        attempts.append(kind)
+        if len(attempts) == 1:
+            raise HTTPException(502, "down")
+        return {"text": "ok"}
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", provider)
+    assert transcribe(hosted, conv, headers).status_code == 502  # failed call still holds $0.0025
+    assert transcribe(hosted, conv, headers).status_code == 200
+    assert transcribe(hosted, conv, headers).status_code == 429  # budget exhausted before the provider is called
+    assert attempts == ["transcribe", "transcribe"]
+    with hosted[1].transaction() as db:
+        statuses = sorted(e.status for e in db.scalars(select(UsageEvent).where(UsageEvent.purpose == "speech-transcribe")))
+        assert statuses == ["failed", "succeeded"]
+
+
+def test_http_speech_stays_blocked_by_budget_but_aws_is_not(hosted):
+    from asklit.hosted.speech import speech_configured
+    settings = hosted[0]
+    settings.monthly_ai_budget_usd = 100
+    settings.speech_provider, settings.speech_api_key = "compatible", "k"
+    assert not speech_configured(settings)
+    settings.speech_provider = "aws"
+    assert speech_configured(settings)

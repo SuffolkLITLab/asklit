@@ -66,6 +66,13 @@ def reserve_budget(db, settings, model, messages):
     input_bound = 2048 + sum(len(m['content'].encode('utf-8')) + 256 for m in messages)
     output_bound = min(int(model.get('max_tokens', 1500)), 4000)
     reservation = math.ceil((input_bound*rates[0]*2.5 + output_bound*rates[1]*1.5)*1.1) / 1_000_000
+    return reserve_amount(db, settings, reservation)
+
+
+def reserve_amount(db, settings, reservation):
+    """Hold `reservation` USD against the monthly budget; the caller must record a UsageEvent in the same transaction."""
+    if settings.monthly_ai_budget_usd is None:
+        return None
     start = month_start()
     key = 'monthly-ai-budget:' + start.strftime('%Y-%m')
     if db.bind.dialect.name == 'postgresql':

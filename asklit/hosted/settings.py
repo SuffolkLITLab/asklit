@@ -20,6 +20,13 @@ class Settings:
     speech_tts_model: str = ""
     speech_voice: str = "alloy"
     speech_daily_calls: int = 1000
+    speech_provider: str = "compatible"  # "compatible" (HTTP /audio/*) or "aws" (Polly + Transcribe)
+    speech_region: str = "us-east-1"
+    speech_language: str = "en-US"
+    speech_aws_engine: str = "neural"
+    # AWS list prices (us-east-1): Polly neural per 1M characters; Transcribe streaming per minute.
+    speech_tts_usd_per_million_chars: float = 16.0
+    speech_stt_usd_per_minute: float = 0.01
     trust_fly_proxy: bool = False
     require_author_approval: bool = False
     open_registration_until: str = ""
@@ -67,6 +74,12 @@ class Settings:
             raise ValueError("Speech endpoint must use HTTPS, or HTTP on loopback, without credentials or a query.")
         if self.speech_key_header not in {"Authorization", "api-key", "Ocp-Apim-Subscription-Key"}:
             raise ValueError("Unsupported speech API key header.")
+        if self.speech_provider not in {"compatible", "aws"}:
+            raise ValueError("Speech provider must be compatible or aws.")
+        if self.speech_aws_engine not in {"standard", "neural"}:
+            raise ValueError("Polly engine must be standard or neural.")
+        if self.speech_tts_usd_per_million_chars <= 0 or self.speech_stt_usd_per_minute <= 0:
+            raise ValueError("Speech rates must be positive.")
         if self.speech_daily_calls < 1:
             raise ValueError("Speech allowance must be positive.")
         if self.dev_mode:
@@ -207,6 +220,12 @@ class Settings:
             speech_tts_model=os.getenv("ASKLIT_SPEECH_TTS_MODEL", ""),
             speech_voice=os.getenv("ASKLIT_SPEECH_VOICE", "alloy"),
             speech_daily_calls=int(os.getenv("ASKLIT_SPEECH_DAILY_CALLS", "1000")),
+            speech_provider=os.getenv("ASKLIT_SPEECH_PROVIDER", "compatible").strip().lower(),
+            speech_region=os.getenv("ASKLIT_SPEECH_REGION", "us-east-1").strip(),
+            speech_language=os.getenv("ASKLIT_SPEECH_LANGUAGE", "en-US").strip(),
+            speech_aws_engine=os.getenv("ASKLIT_SPEECH_AWS_ENGINE", "neural").strip().lower(),
+            speech_tts_usd_per_million_chars=float(os.getenv("ASKLIT_SPEECH_TTS_USD_PER_MILLION_CHARS", "16.0")),
+            speech_stt_usd_per_minute=float(os.getenv("ASKLIT_SPEECH_STT_USD_PER_MINUTE", "0.01")),
             dev_mode=dev_mode,
             trust_fly_proxy=os.getenv("ASKLIT_TRUST_FLY_PROXY", "false").lower() == "true",
             open_registration_until=os.getenv("ASKLIT_OPEN_REGISTRATION_UNTIL", "").strip(),

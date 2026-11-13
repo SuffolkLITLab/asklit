@@ -77,16 +77,18 @@ class AccountState(BaseModel):
     enabled: bool
 
 
-def reserve_login(store, request, settings, email, *, management=False):
+def reserve_login(store, request, settings, email, *, management=False, instructor=False):
     """Committed attempt counters survive a rejected login/password check."""
     ip = request.client.host if request.client else "unknown"
     period = int(time.time() // 900)
     limited = False
     with store.transaction() as db:
-        prefix = "manage" if management else "login"
+        prefix = "instructor" if instructor else ("manage" if management else "login")
         limits = [("ip", ip, 300 if management else 100),
                   ("pair", email + "\0" + ip, 100 if management else 10),
                   ("user", email, 500 if management else 200)]
+        if instructor:
+            limits = [("ip", ip, 100), ("pair", email + "\0" + ip, 20)]
         for kind, value, limit in limits:
             hashed = hmac.new(settings.secret_key.encode(), value.encode(), hashlib.sha256).hexdigest()[:32]
             key = f"{prefix}:{kind}:{hashed}:{period}"
@@ -99,7 +101,7 @@ def reserve_login(store, request, settings, email, *, management=False):
             limited = limited or bucket.count >= limit
             bucket.count += 1
     if limited:
-        raise HTTPException(429, "Too many sign-in attempts. Try again in fifteen minutes.")
+        raise HTTPException(429, ("Too many instructor-password attempts." if instructor else "Too many sign-in attempts.") + " Try again in fifteen minutes.")
 
 
 def new_local_user(db, org_id, email, name, hashed, role):

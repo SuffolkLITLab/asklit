@@ -1,17 +1,23 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
+import AskLitInstructorNotes from './AskLitInstructorNotes';
 import AskLitVoiceControls, { VoiceHandle } from './AskLitVoiceControls';
 
 type Source = { filename: string; page: number; content: string };
 type Answer = { answer: string; sources: Source[] };
 type Metadata = {
+  id?: string;
+  organization?: { name: string; slug: string | null };
   title: string;
   voice?: { browser: boolean; paid: boolean };
   locked?: boolean;
   access_mode?: string;
   url?: string;
   welcome: string;
+  student_instructions?: string;
+  show_citations?: boolean;
+  instructor_notes_available?: boolean;
   footer: string;
   retention_days: number;
   uploads?: {
@@ -513,6 +519,34 @@ export default function AskLitChat({
       aria-label="AskLit assistant"
     >
       <h2>{metadata?.title || 'Ask a question'}</h2>
+      <div className="border-start border-3 border-warning ps-3 mb-3 small">
+        {metadata?.organization && (
+          <p className="text-muted mb-1">
+            Organization: {metadata.organization.name}
+          </p>
+        )}
+        <p className="mb-1">
+          This AskLit uses AI and can make mistakes. Check important
+          information.
+        </p>
+        <p className="mb-1">
+          Do not enter sensitive identifying information, such as bank account
+          numbers, government ID numbers, or passwords.
+        </p>
+        <details>
+          <summary>About this AskLit</summary>
+          <p className="mb-1">AskLit ID: {metadata?.id || botId}</p>
+          <p className="mb-1">
+            Organization names are supplied by publishers. Hosting an AskLit is
+            not an endorsement of its content.
+          </p>
+          <a
+            href={`mailto:litlab@suffolk.edu?subject=${encodeURIComponent('Report AskLit ' + (metadata?.id || botId))}`}
+          >
+            Report a concern
+          </a>
+        </details>
+      </div>
       {error && (
         <p role="alert" className="alert alert-warning">
           {error}
@@ -566,13 +600,23 @@ export default function AskLitChat({
           )}
         </div>
       )}
+      {metadata?.instructor_notes_available && (
+        <AskLitInstructorNotes key={botId} botId={botId} apiBase={base} />
+      )}
       {metadata && !metadata.locked && (
         <>
+          {metadata.student_instructions && (
+            <details open className="my-3">
+              <summary>Instructions</summary>
+              <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                {metadata.student_instructions}
+              </p>
+            </details>
+          )}
           <p>{metadata.welcome}</p>
           <p className="small text-muted">
-            Answers are AI-generated. Check the source passages. Conversations
-            are retained for up to {metadata.retention_days} days; use “Clear
-            conversation” to delete yours sooner.
+            Conversations are retained for up to {metadata.retention_days} days;
+            use “Clear conversation” to delete yours sooner.
           </p>
           {metadata.profiles.length > 1 && (
             <label className="form-label d-block">
@@ -608,14 +652,22 @@ export default function AskLitChat({
                 <p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
                   {message.content}
                 </p>
-                {message.sources?.map((source, i) => (
-                  <details key={i} className="mb-2">
-                    <summary>
-                      {source.filename}, page {source.page}
-                    </summary>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{source.content}</p>
-                  </details>
-                ))}
+                {metadata.show_citations !== false &&
+                  !!message.sources?.length && (
+                    <details>
+                      <summary>Sources</summary>
+                      {message.sources.map((source, i) => (
+                        <details key={i} className="mb-2">
+                          <summary>
+                            {source.filename}, page {source.page}
+                          </summary>
+                          <p style={{ whiteSpace: 'pre-wrap' }}>
+                            {source.content}
+                          </p>
+                        </details>
+                      ))}
+                    </details>
+                  )}
               </div>
             ))}
           </div>

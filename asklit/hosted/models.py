@@ -119,6 +119,8 @@ class Invitation(Base):
 
 class Bot(Base):
     __tablename__ = "hosted_bots"
+    instructor_notes: Mapped[str] = mapped_column(Text, default="")
+    instructor_password_hash: Mapped[str] = mapped_column(Text, default="")
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=uid)
     org_id: Mapped[str] = mapped_column(
         ForeignKey("hosted_organizations.id"), index=True

@@ -695,3 +695,6 @@ footer nav { margin-top: 1rem; font-size: .875rem; }
 .dialog-header h2 { margin-top: 0; }
 .dialog-header > button { flex-shrink: 0; margin-left: auto; }
 .dialog-header > button span { font-size: 1.3em; line-height: 1; }
+
+.long-instructions { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 75ch; }
+#instructor-access { margin-block: 1rem; }

@@ -57,7 +57,7 @@ def budget_report(db, settings):
 def reserve_budget(db, settings, model, messages):
     if settings.monthly_ai_budget_usd is None:
         return None
-    rates = [model.get('input_usd_per_million'), model.get('output_usd_per_million')]
+    rates = [model.get('budget_input_usd_per_million', model.get('input_usd_per_million')), model.get('budget_output_usd_per_million', model.get('output_usd_per_million'))]
     if messages is None or any(not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0 for x in rates):
         raise ModelPricingMissing()
     # Text-only requests: UTF-8 bytes conservatively bound text tokens. Allow

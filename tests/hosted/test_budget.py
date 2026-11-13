@@ -127,3 +127,30 @@ def test_unknown_historical_cost_is_visible_and_cannot_be_ignored(hosted):
         assert report['legacy_unknown_calls']==1
         assert report['committed_usd']==1
         assert report['estimated_spend_usd']==0
+
+
+def test_conservative_rates_hold_more_than_standard_context_charge(hosted):
+    settings,store,bot,_=setup_budget(hosted,100)
+    model=settings.models['default']
+    model.update(budget_input_usd_per_million=5,budget_output_usd_per_million=10)
+    with meter(store,bot,'preview'):
+        handle=begin_call(settings,'default',model,MESSAGES)
+        with store.transaction() as db:
+            reserved=budget_report(db,settings)['committed_usd']
+        finish_call(handle,'succeeded',{'input_tokens':10,'output_tokens':10},.1)
+    with store.transaction() as db:
+        assert reserved>budget_report(db,settings)['committed_usd']
+        assert db.get(UsageEvent,handle[1]).estimated_cost_usd==pytest.approx(.00003)
+
+
+def test_bedrock_forwards_operator_thinking_configuration(hosted,monkeypatch):
+    import boto3
+    observed={}
+    class Provider:
+        def converse(self,**kwargs):
+            observed.update(kwargs)
+            return {'output':{'message':{'content':[{'text':'Violet'}]}},'usage':{'inputTokens':9,'outputTokens':2}}
+    monkeypatch.setattr(boto3.session.Session,'client',lambda *a,**k:Provider())
+    answer,usage=hosted[2].bedrock(MESSAGES,{'model':'test-haiku','additional_model_request_fields':{'thinking':{'type':'disabled'}}})
+    assert observed['additionalModelRequestFields']=={'thinking':{'type':'disabled'}}
+    assert answer=='Violet' and usage['output_tokens']==2

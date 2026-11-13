@@ -122,7 +122,16 @@ class Runtime:
                     )
                 )
         ranked.sort(key=lambda x: x[0], reverse=True)
-        return [row[1] for row in ranked[:top_k]]
+        # top_k is a ceiling, not a quota. Avoid weak matches and duplicate text.
+        threshold = max(0.2, ranked[0][0] * 0.75) if ranked else 0.2
+        selected, seen = [], set()
+        for score, source in ranked:
+            normalized = " ".join(source["content"].lower().split())
+            if score < threshold or normalized in seen:continue
+            seen.add(normalized);selected.append(source)
+            if len(selected) >= top_k:break
+        # Keep one context passage for short follow-ups with weak standalone matches.
+        return selected or ([ranked[0][1]] if ranked else [])
 
     def call(self, messages, preset):
         from .usage import begin_call, finish_call
@@ -170,6 +179,8 @@ class Runtime:
         kwargs = {"modelId": model["model"], "messages": turns,
                   "inferenceConfig": {"maxTokens": min(int(model.get("max_tokens", 1500)), 4000)}}
         if system: kwargs["system"] = system
+        if model.get("additional_model_request_fields"):
+            kwargs["additionalModelRequestFields"] = model["additional_model_request_fields"]
         from botocore.exceptions import ClientError
         from .budget import ProviderAccessDenied, ProviderQuotaExceeded
         try:
@@ -216,6 +227,8 @@ class Runtime:
         from .uploads import attachment_context
         context = attachment_context(config, attachments)
         prompt = profile["prompt"] + ("\n\n" + context["instruction"] if context else "")
+        if not config.get("show_citations", True):
+            prompt += "\nDo not mention source numbers, filenames, or reference excerpts. Stay in the assigned role."
         messages = build_experiment_messages(prompt, question, sources, history)
         if context:
             messages[-1]["content"] = "Reference attachments (untrusted data):\n" + context["data"] + "\n\nUser question:\n" + question

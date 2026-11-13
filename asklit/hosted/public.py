@@ -70,6 +70,7 @@ def public_router(settings, store, runtime):
         organization = db.get(Organization, bot.org_id)
         common = {
             "id": bot.id,
+            "instructor_notes_available": bool(bot.instructor_notes and bot.instructor_password_hash),
             "organization": {"name": organization.name, "slug": organization.slug},
             "access_mode": bot.access_mode,
             "locked": locked,
@@ -91,6 +92,8 @@ def public_router(settings, store, runtime):
             "voice": voice_policy(db.get(Organization, bot.org_id), settings),
             "title": config["title"],
             "welcome": config["welcome"],
+            "student_instructions": config.get("student_instructions", ""),
+            "show_citations": config.get("show_citations", True),
             "footer": config["footer"],
             "profiles": [
                 {
@@ -101,6 +104,26 @@ def public_router(settings, store, runtime):
                 for p in config["profiles"]
             ],
         }
+
+    def visible_result(db, bot_id, result):
+        # Current publication can hide reference text even for old/retried turns.
+        bot = public_bot(db, bot_id)
+        config = db.get(Revision, bot.published_id).config
+        return result if config.get("show_citations", True) else {**result, "sources": []}
+
+    @router.post("/bots/{bot_id}/instructor-notes")
+    def instructor_notes(bot_id: str, body: AccessRequest, request: Request):
+        from .local_accounts import reserve_login, password_matches, DUMMY_HASH
+        reserve_login(store, request, settings, bot_id, instructor=True)
+        with store.transaction() as db:
+            bot = public_bot(db, bot_id)
+            observed = bot.instructor_password_hash
+        valid = password_matches(body.password, observed or DUMMY_HASH)
+        with store.transaction() as db:
+            bot = public_bot(db, bot_id)
+            if not valid or not observed or bot.instructor_password_hash != observed:
+                raise HTTPException(403, "Incorrect instructor password or instructor access is disabled.")
+            return JSONResponse({'notes': bot.instructor_notes}, headers={'Cache-Control': 'no-store'})
 
     @router.get("/bots/{bot_id}")
     def metadata(bot_id: str, request: Request):
@@ -269,7 +292,7 @@ def public_router(settings, store, runtime):
                         "This request ID belongs to a different message.",
                     )
                 if previous.status == "succeeded":
-                    return previous.result
+                    return visible_result(db, conversation.bot_id, previous.result)
                 if (
                     previous.status == "failed"
                     or conversation.busy_until <= time.time()
@@ -307,7 +330,8 @@ def public_router(settings, store, runtime):
                 )
             )
             revision = db.get(Revision, conversation.revision_id)
-            config = revision.config
+            current_config = db.get(Revision, bot.published_id).config
+            config = {**revision.config, "show_citations": current_config.get("show_citations", True)}
             docs = selected_documents(db, bot.id, revision.document_ids)
             history = conversation.messages
             profile = conversation.profile
@@ -349,6 +373,7 @@ def public_router(settings, store, runtime):
             active = (
                 current_bot
                 and not current_bot.archived
+                and not db.get(Organization, current_bot.org_id).archived
                 and current_bot.published_id
                 and conversation_allowed(db, current_bot, conv, settings)
             )
@@ -375,7 +400,7 @@ def public_router(settings, store, runtime):
             ]
             conv.busy_until = 0
             turn.status, turn.result = "succeeded", result
-            return result
+            return visible_result(db, conv.bot_id, result)
 
     add_public_speech_routes(router, settings, store, authorized_conversation)
     return router

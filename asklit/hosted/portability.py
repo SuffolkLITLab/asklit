@@ -15,7 +15,7 @@ def scaffold_config(config, settings, docs):
     from asklit.scaffold.config import default_scaffold_config
 
     value = default_scaffold_config()
-    value["app"].update(title=config["title"], welcome_message=config["welcome"])
+    value["app"].update(title=config["title"], welcome_message=config["welcome"], student_instructions=config.get("student_instructions", ""))
     value["branding"]["footer_text"] = config["footer"]
     preset = settings.models[config["model_preset"]]
     value["model"] = {
@@ -27,7 +27,7 @@ def scaffold_config(config, settings, docs):
         if docs
         else settings.embedding_model,
     }
-    value["retrieval"] = {"top_k": config["top_k"]}
+    value["retrieval"] = {"top_k": config["top_k"], "show_citations": config.get("show_citations", True)}
     value["prompt_profiles"] = [dict(p) for p in config["profiles"]]
     for p in value["prompt_profiles"]:
         if not p["connected_files"]:
@@ -42,6 +42,7 @@ def workspace_yaml(config, settings, docs):
 
     source = scaffold_config(config, settings, docs)
     source["hosted_evaluation"] = config.get("evaluation", {})
+    source["hosted_presentation"] = {"show_citations": config.get("show_citations", True), "student_instructions": config.get("student_instructions", "")}
     return export_workspace_yaml(
         source,
         scaffold_scenarios(config["scenarios"]),
@@ -54,7 +55,12 @@ def read_workspace(value, settings):
 
     imported = import_workspace_yaml(value)
     source = imported["app_config"]
+    presentation = source.get("hosted_presentation") or {}
+    if not isinstance(presentation, dict):
+        raise ValueError("Presentation settings must be a mapping.")
     config = BotConfig(
+        show_citations=presentation.get("show_citations", True),
+        student_instructions=presentation.get("student_instructions", ""),
         title=source.get("app", {}).get("title", "Imported AskLit"),
         welcome=source.get("app", {}).get("welcome_message", "How can I help you?"),
         model_preset=next(iter(settings.models)),

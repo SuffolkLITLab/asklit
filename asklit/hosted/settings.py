@@ -135,6 +135,7 @@ class Settings:
                 raise ValueError("Each hosted model preset must name a model.")
             if self.monthly_ai_budget_usd is not None:
                 rates = [preset.get("input_usd_per_million"), preset.get("output_usd_per_million")]
+                rates += [preset[key] for key in ("budget_input_usd_per_million", "budget_output_usd_per_million") if key in preset]
                 if any(not isinstance(x, (int, float)) or not math.isfinite(x) or x <= 0 for x in rates):
                     raise ValueError("AI budget requires positive finite input/output rates for every model preset.")
             if preset.get("base_url"):

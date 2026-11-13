@@ -46,6 +46,8 @@ class GenerateScenarios(Strict):
 
 
 class BotConfig(Strict):
+    show_citations: bool = True
+    student_instructions: str = Field(default="", max_length=30000)
     uploads_enabled: bool = False
     upload_prompt: str = Field(default="", max_length=4000)
     title: str = Field(default="My AskLit", min_length=1, max_length=200)
@@ -59,10 +61,13 @@ class BotConfig(Strict):
     evaluation: EvaluationOptions = Field(default_factory=EvaluationOptions)
     rubrics: list[str] = Field(default_factory=list, max_length=10)
     footer: str = Field(default="Made with AskLit", max_length=1000)
-    top_k: int = Field(default=5, ge=1, le=10)
+    top_k: int = Field(default=3, ge=1, le=10)
 
 
 class SaveBot(Strict):
+    instructor_notes: str | None = Field(default=None, max_length=30000)
+    instructor_shared: bool | None = None
+    instructor_password: str | None = Field(default=None, min_length=12, max_length=200)
     version: int = Field(ge=1)
     config: BotConfig
 

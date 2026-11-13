@@ -155,6 +155,8 @@ def get_document_labels(document_ids):
 
 
 def render_citations(context_chunks):
+    if not get_setting("retrieval.show_citations", True):
+        return
     document_ids = {
         chunk["metadata"].get("document_id")
         for chunk in context_chunks
@@ -278,6 +280,10 @@ def main():
     active_model = render_model_selector()
 
     st.title(get_setting("app.title", "AskLit"))
+    student_instructions = get_setting("app.student_instructions", "")
+    if student_instructions:
+        with st.expander("Instructions", expanded=True):
+            st.write(student_instructions)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

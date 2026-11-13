@@ -52,3 +52,10 @@ clients; server-side spending and session limits also apply.
 CourtFormsOnline repository. Apply component fixes to both copies. The static
 frontend does not use Next.js API routes, server actions, or runtime cookies.
 See [Next.js static export documentation](https://nextjs.org/docs/app/guides/static-exports).
+
+Copy `AskLitInstructorNotes.tsx` alongside `AskLitChat.tsx` when integrating the
+component. Public metadata optionally includes `student_instructions`,
+`show_citations`, and `instructor_notes_available`. Instructor note contents are
+never metadata: the component obtains them by password-checked POST, keeps them
+in memory, and clears them with Hide notes. The backend strips hidden citation
+excerpts as well as the frontend suppressing their display.

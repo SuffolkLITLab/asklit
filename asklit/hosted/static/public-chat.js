@@ -41,6 +41,9 @@ async function request(
 }
 function showMetadata(data) {
   metadata = data;
+  $("instructor-access").hidden = !data.instructor_notes_available;
+  $("instructor-text").textContent = "";
+  $("instructor-result").hidden = true;
   $("chat-title").textContent = data.title;
   document.title = data.title + " · AskLit";
   $("chat-publisher").textContent = "Organization: " + data.organization.name;
@@ -53,6 +56,8 @@ function showMetadata(data) {
   );
   $("chat-content").hidden = data.locked;
   if (data.locked) return;
+  $("student-instructions").hidden = !data.student_instructions;
+  $("student-instructions-text").textContent = data.student_instructions || "";
   $("chat-opening").textContent = data.welcome;
   $("chat-footer").textContent = data.footer;
   $("chat-profile").replaceChildren();
@@ -136,15 +141,18 @@ function append(role, text, sources = []) {
   const div = document.createElement("div");
   div.className = "message " + role;
   div.textContent = text;
-  for (const source of sources) {
+  const referenceGroup = document.createElement("details");
+  const referenceSummary = document.createElement("summary");referenceSummary.textContent = "Sources";referenceGroup.append(referenceSummary);
+  for (const source of metadata?.show_citations === false ? [] : sources) {
     const d = document.createElement("details");
     const summary = document.createElement("summary");
     summary.textContent = `${source.filename}, page ${source.page}`;
     const p = document.createElement("p");
     p.textContent = source.content;
     d.append(summary, p);
-    div.append(d);
+    referenceGroup.append(d);
   }
+  if(referenceGroup.children.length > 1) div.append(referenceGroup);
   $("chat-messages").append(div);
   div.scrollIntoView({ block: "nearest" });
   return div;
@@ -377,3 +385,13 @@ $("chat-file").onchange = async () => {
     setBusy(false);
   }
 };
+
+$("instructor-unlock").onsubmit = async event => {
+  event.preventDefault();const button=event.submitter;button.disabled=true;
+  try {
+    const response=await fetch(`/api/public/bots/${encodeURIComponent(botId)}/instructor-notes`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("instructor-password").value}),credentials:"omit"});
+    const value=await response.json();if(!response.ok)throw new Error(value.detail || "Cannot open instructor notes.");
+    $("instructor-text").textContent=value.notes;$("instructor-result").hidden=false;$("instructor-error").textContent="";
+  } catch(error){$("instructor-error").textContent=error.message;} finally {$("instructor-password").value="";button.disabled=false;}
+};
+$("instructor-hide").onclick=()=>{$("instructor-text").textContent="";$("instructor-result").hidden=true;$("instructor-access").open=false;};

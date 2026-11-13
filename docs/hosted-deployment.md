@@ -531,3 +531,38 @@ Fly secret changes restart machines; the runtime date check itself needs no depl
 Public signup uses CSRF protection, hashed passwords, and shared registration
 attempt limits (10 per IP and 200 across the service per fifteen-minute window).
 Local login emails remain unverified and are not used to establish school access.
+
+### Simulations: instructions, citations, and instructor notes
+
+In **Settings**, add **Student instructions** (up to 30,000 characters) for a
+longer briefing before the chat. Save and Publish to update the public exercise.
+Uncheck **Show citations and reference excerpts to participants** for role-play.
+The server omits source excerpts from public responses, including retried older
+turns after a new publication disables citations. This is not a guarantee that a
+model cannot paraphrase facts it received in its knowledge base.
+
+New AskLits default to at most three reference passages; existing saved limits
+remain unchanged. **More settings → Maximum reference passages** supports up to
+ten. Retrieval filters weak and duplicate passages, so the limit is a ceiling,
+not a required count. Visible references are grouped under a collapsed Sources
+control. References are retrieval results, not proof that the model used each
+passage. There is still one answer-model call per turn; filtering does not add a
+separate model call.
+
+**Instructor notes** are stored separately from the published configuration,
+student briefing and model context. Save updates them immediately; Publish is not
+required for note/password changes. Studio authors and their organization admins
+can edit/read them. To let another instructor read them without Studio access,
+enable password sharing and set a separate password of at least 12 characters.
+Visitors receive notes only from a password-checked POST; the password is hashed
+and never returned, and requests are rate limited. Disabling sharing or changing
+the password takes effect on the next request. Already-read notes cannot be
+recalled; anyone given the password can share it.
+
+Instructor notes/passwords are excluded from workspace and Streamlit exports.
+Workspace downloads preserve student instructions and the citation switch;
+Streamlit exports display student instructions and respect citation visibility.
+The static Next.js component also displays the briefing and supports protected
+instructor notes without embedding notes in its build output.
+
+For a short follow-up with no strong standalone match, retrieval keeps the best passage for continuity. Citation hiding applies to participant responses; authors and evaluation judges retain access to reference passages.

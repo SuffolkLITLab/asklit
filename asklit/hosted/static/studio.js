@@ -172,6 +172,8 @@ $("connected-files").addEventListener("input", knowledgeHint);
 function readConfig() {
   readProfile();
   Object.assign(bot.config, {
+    show_citations: $("show-citations").checked,
+    student_instructions: $("student-instructions").value,
     title: $("title").value,
     welcome: $("welcome").value,
     description: $("description").value,
@@ -227,7 +229,11 @@ async function save() {
   bot = await api(`/bots/${bot.id}`, "PUT", {
     version: bot.version,
     config: bot.config,
+    instructor_notes: $("instructor-notes").value,
+    instructor_shared: $("instructor-shared").checked,
+    instructor_password: $("instructor-password").value || null,
   });
+  $("instructor-password").value = "";
   dirty = false;
   $("bot-heading").textContent = bot.title;
   $("save-status").textContent = "Saved";
@@ -309,6 +315,11 @@ async function openBot(id) {
   $("model").replaceChildren();
   availableModels().forEach((m) => option($("model"), m, me.model_labels?.[m] || m));
   $("model").value = bot.config.model_preset;
+  $("show-citations").checked = bot.config.show_citations !== false;
+  $("student-instructions").value = bot.config.student_instructions || "";
+  $("instructor-notes").value = bot.instructor_notes || "";
+  $("instructor-shared").checked = !!bot.instructor_shared;
+  $("instructor-password").value = "";
   $("top-k").value = bot.config.top_k;
   $("uploads-enabled").checked = !!bot.config.uploads_enabled;
   $("upload-prompt").value = bot.config.upload_prompt || "";
@@ -1177,7 +1188,7 @@ bind("publish", async () => {
   await save();
   if (
     !confirm(
-      "Publish this assistant and its retrieved passages for public use?",
+      "Publish this assistant with its current participant settings?",
     )
   )
     return;

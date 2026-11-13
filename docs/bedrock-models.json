@@ -20,14 +20,22 @@
     "pricing_checked": "2026-11-11"
   },
   "claude-haiku": {
-    "label": "Claude Haiku 4.5",
+    "label": "Claude Haiku 5.5",
     "provider": "bedrock",
-    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "model": "us.anthropic.claude-haiku-5-5",
     "region": "us-east-1",
     "max_tokens": 1500,
-    "input_usd_per_million": 1.1,
-    "output_usd_per_million": 5.5,
-    "pricing_checked": "2026-11-11"
+    "input_usd_per_million": 0.11,
+    "output_usd_per_million": 0.55,
+    "pricing_checked": "2026-11-13",
+    "budget_input_usd_per_million": 0.55,
+    "budget_output_usd_per_million": 2.75,
+    "pricing_max_input_tokens": 100000,
+    "additional_model_request_fields": {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
   },
   "llama-8b": {
     "label": "Meta Llama 3.1 8B",
@@ -40,7 +48,7 @@
     "pricing_checked": "2026-11-11"
   },
   "tiny": {
-    "label": "Nova Micro — small test",
+    "label": "Nova Micro \u2014 small test",
     "provider": "bedrock",
     "model": "us.amazon.nova-micro-v1:0",
     "region": "us-east-1",
@@ -61,18 +69,26 @@
     "hidden": true
   },
   "gpt-4.1": {
-    "label": "Claude Haiku 4.5",
+    "label": "Claude Haiku 5.5",
     "provider": "bedrock",
-    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "model": "us.anthropic.claude-haiku-5-5",
     "region": "us-east-1",
     "max_tokens": 1500,
-    "input_usd_per_million": 1.1,
-    "output_usd_per_million": 5.5,
-    "pricing_checked": "2026-11-11",
-    "hidden": true
+    "input_usd_per_million": 0.11,
+    "output_usd_per_million": 0.55,
+    "pricing_checked": "2026-11-13",
+    "hidden": true,
+    "budget_input_usd_per_million": 0.55,
+    "budget_output_usd_per_million": 2.75,
+    "pricing_max_input_tokens": 100000,
+    "additional_model_request_fields": {
+      "thinking": {
+        "type": "disabled"
+      }
+    }
   },
   "gpt-6-luna": {
-    "label": "OpenAI GPT-6 Luna — small",
+    "label": "OpenAI GPT-6 Luna \u2014 small",
     "provider": "bedrock",
     "model": "us.openai.gpt-6-luna",
     "region": "us-east-1",
@@ -83,7 +99,7 @@
     "pricing_max_input_tokens": 272000
   },
   "gpt-6.1-terra": {
-    "label": "OpenAI GPT-6.1 Terra — medium",
+    "label": "OpenAI GPT-6.1 Terra \u2014 medium",
     "provider": "bedrock",
     "model": "us.openai.gpt-6.1-terra",
     "region": "us-east-1",
@@ -94,7 +110,7 @@
     "pricing_max_input_tokens": 272000
   },
   "gpt-6.1-sol": {
-    "label": "OpenAI GPT-6.1 Sol — large",
+    "label": "OpenAI GPT-6.1 Sol \u2014 large",
     "provider": "bedrock",
     "model": "us.openai.gpt-6.1-sol",
     "region": "us-east-1",

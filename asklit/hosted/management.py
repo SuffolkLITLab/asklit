@@ -66,6 +66,8 @@ def bot_view(bot):
         "version": bot.version,
         "published_id": bot.published_id,
         "config": bot.draft,
+        "instructor_notes": bot.instructor_notes,
+        "instructor_shared": bool(bot.instructor_password_hash),
     }
 
 
@@ -344,10 +346,22 @@ def management_router(settings, store, runtime):
     @router.put("/bots/{bot_id}")
     def save_bot(bot_id: str, body: SaveBot, request: Request):
         config = validate_config(body.config.model_dump(), settings)
+        hashed = None
+        if body.instructor_password:
+            from .local_accounts import password_hash
+            with store.transaction() as db:
+                session = login_session(db, request, True)
+                accessible_bot(db, bot_id, session.user_id)
+            hashed = password_hash(body.instructor_password)
         with store.transaction() as db:
             session = login_session(db, request, True)
             bot = accessible_bot(db, bot_id, session.user_id, True)
             check_version(bot, body.version)
+            if body.instructor_notes is not None:bot.instructor_notes = body.instructor_notes
+            if hashed:bot.instructor_password_hash = hashed
+            if body.instructor_shared is False:bot.instructor_password_hash = ""
+            if body.instructor_shared and not bot.instructor_password_hash:
+                raise HTTPException(422, "Set an instructor password of at least 12 characters.")
             bot.draft, bot.title, bot.version = config, config["title"], bot.version + 1
             audit(db, session.user_id, bot.org_id, "bot.save", bot.id)
             return bot_view(bot)

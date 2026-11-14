@@ -8,6 +8,101 @@ let metadata,
   retry = null,
   busy = false,
   csrf = "";
+// Transcript kept only in this tab's sessionStorage so a refresh does not lose
+// it; nothing is sent to the server for it and it ends when the tab closes.
+let transcript = [],
+  saved = true,
+  printing = false;
+const storeKey = "asklit-chat:" + botId;
+function persist() {
+  try {
+    sessionStorage.setItem(storeKey, JSON.stringify({
+      messages: transcript, session, profile: $("chat-profile").value,
+    }));
+  } catch {}
+}
+function remember(question, result) {
+  transcript.push({ role: "user", text: question });
+  transcript.push({ role: "assistant", text: result.answer, sources: result.sources || [] });
+  saved = false;
+  $("chat-download").disabled = false;
+  persist();
+}
+function forgetTranscript() {
+  transcript = [];
+  saved = true;
+  $("chat-download").disabled = true;
+  try { sessionStorage.removeItem(storeKey); } catch {}
+}
+async function restore() {
+  let value;
+  try { value = JSON.parse(sessionStorage.getItem(storeKey) || "null"); } catch {}
+  if (!value || !Array.isArray(value.messages) || !value.messages.length) return;
+  transcript = value.messages;
+  session = value.session || null;
+  if (value.profile) $("chat-profile").value = value.profile;
+  $("chat-messages").replaceChildren();
+  for (const m of transcript) append(m.role, m.text, m.sources || []);
+  $("chat-download").disabled = false;
+  saved = false;
+  setBusy(false);
+  if (session && metadata.uploads?.enabled) {
+    try {
+      attachments = await request(`/api/public/conversations/${session.id}/attachments`, "GET", undefined, session.token);
+      renderFiles();
+    } catch (e) {
+      if ([403, 404].includes(e.status)) { session = null; setBusy(false); persist(); }
+    }
+  }
+}
+function buildPrintable() {
+  const root = $("print-transcript");
+  const add = (tag, text, className) => {
+    const el = document.createElement(tag);
+    el.textContent = text;
+    if (className) el.className = className;
+    root.append(el);
+    return el;
+  };
+  root.replaceChildren();
+  add("h1", metadata.title);
+  add("p", "Organization: " + metadata.organization.name + " · AskLit ID: " + metadata.id);
+  add("p", "Saved " + new Date().toLocaleString());
+  add("p", "This AskLit uses AI and can make mistakes. Check important information.", "print-note");
+  for (const m of transcript) {
+    const block = document.createElement("div");
+    block.className = "print-message";
+    const who = document.createElement("strong");
+    who.textContent = m.role === "user" ? "You" : "AskLit";
+    const body = document.createElement("p");
+    body.textContent = m.text;
+    block.append(who, body);
+    const sources = metadata.show_citations === false ? [] : m.sources || [];
+    if (sources.length) {
+      const list = document.createElement("p");
+      list.className = "print-sources";
+      list.textContent = "Sources: " + sources.map(x => `${x.filename}, page ${x.page}`).join("; ");
+      block.append(list);
+    }
+    root.append(block);
+  }
+}
+$("chat-download").onclick = () => {
+  if (!transcript.length) return;
+  buildPrintable();
+  printing = true;
+  window.print();
+};
+window.addEventListener("afterprint", () => {
+  if (printing) saved = true;
+  printing = false;
+});
+window.addEventListener("beforeunload", event => {
+  if (transcript.length && !saved) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
 async function request(
   path,
   method = "GET",
@@ -73,6 +168,7 @@ function showMetadata(data) {
   $("chat-file").accept = data.uploads?.extensions.join(",") || "";
   chatVoice.setPolicy(data.voice || { browser: true, paid: false });
   renderStarters();
+  if (!transcript.length) restore();
 }
 function renderStarters() {
   $("chat-starters").replaceChildren();
@@ -199,6 +295,7 @@ $("chat-send").onsubmit = async (event) => {
     pending = null;
     append("user", question);
     append("assistant", result.answer, result.sources);
+    remember(question, result);
     chatVoice.setAnswer(result.answer, retry.request_id, result.sources);
     retry = null;
     $("chat-question").value = "";
@@ -225,6 +322,8 @@ $("chat-send").onsubmit = async (event) => {
 };
 $("chat-clear").onclick = async () => {
   if (busy) return;
+  if (transcript.length && !saved &&
+      !confirm("This conversation has not been downloaded. Clear it anyway?")) return;
   chatVoice.stop();
   try {
     if (session)
@@ -237,6 +336,7 @@ $("chat-clear").onclick = async () => {
     session = null;
     retry = null;
     attachments = [];
+    forgetTranscript();
     renderFiles();
     $("chat-messages").replaceChildren();
     chatVoice.setAnswer("");
@@ -247,6 +347,7 @@ $("chat-clear").onclick = async () => {
       session = null;
       retry = null;
       attachments = [];
+      forgetTranscript();
       renderFiles();
       $("chat-messages").replaceChildren();
     chatVoice.setAnswer("");

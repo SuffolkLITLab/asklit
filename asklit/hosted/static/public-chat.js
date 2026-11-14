@@ -11,13 +11,12 @@ let metadata,
 // Transcript kept only in this tab's sessionStorage so a refresh does not lose
 // it; nothing is sent to the server for it and it ends when the tab closes.
 let transcript = [],
-  saved = true,
-  printing = false;
+  saved = true;
 const storeKey = "asklit-chat:" + botId;
 function persist() {
   try {
     sessionStorage.setItem(storeKey, JSON.stringify({
-      messages: transcript, session, profile: $("chat-profile").value,
+      messages: transcript, session, saved, profile: $("chat-profile").value,
     }));
   } catch {}
 }
@@ -32,6 +31,7 @@ function forgetTranscript() {
   transcript = [];
   saved = true;
   $("chat-download").disabled = true;
+  $("print-transcript").replaceChildren();
   try { sessionStorage.removeItem(storeKey); } catch {}
 }
 async function restore() {
@@ -40,16 +40,25 @@ async function restore() {
   if (!value || !Array.isArray(value.messages) || !value.messages.length) return;
   transcript = value.messages;
   session = value.session || null;
-  if (value.profile) $("chat-profile").value = value.profile;
-  $("chat-messages").replaceChildren();
+  if ([...$("chat-profile").options].some(o => o.value === value.profile))
+    $("chat-profile").value = value.profile;
+  renderStarters();
+  const log = $("chat-messages");
+  log.setAttribute("aria-busy", "true"); // do not read the whole history aloud
+  log.replaceChildren();
   for (const m of transcript) append(m.role, m.text, m.sources || []);
+  log.removeAttribute("aria-busy");
   $("chat-download").disabled = false;
-  saved = false;
+  saved = value.saved === true;
   setBusy(false);
-  if (session && metadata.uploads?.enabled) {
+  if (session) {
     try {
-      attachments = await request(`/api/public/conversations/${session.id}/attachments`, "GET", undefined, session.token);
-      renderFiles();
+      // Drop a stored session the server no longer honours.
+      await request(`/api/public/conversations/${session.id}/voice`, "GET", undefined, session.token);
+      if (metadata.uploads?.enabled) {
+        attachments = await request(`/api/public/conversations/${session.id}/attachments`, "GET", undefined, session.token);
+        renderFiles();
+      }
     } catch (e) {
       if ([403, 404].includes(e.status)) { session = null; setBusy(false); persist(); }
     }
@@ -65,6 +74,7 @@ function buildPrintable() {
     return el;
   };
   root.replaceChildren();
+  if (!transcript.length) return;
   add("h1", metadata.title);
   add("p", "Organization: " + metadata.organization.name + " · AskLit ID: " + metadata.id);
   add("p", "Saved " + new Date().toLocaleString());
@@ -88,14 +98,14 @@ function buildPrintable() {
   }
 }
 $("chat-download").onclick = () => {
-  if (!transcript.length) return;
-  buildPrintable();
-  printing = true;
-  window.print();
+  if (transcript.length) window.print();
 };
+// Also covers Ctrl+P / the browser's Print menu. The browser cannot tell us
+// whether the PDF was actually saved or the dialog cancelled.
+window.addEventListener("beforeprint", buildPrintable);
 window.addEventListener("afterprint", () => {
-  if (printing) saved = true;
-  printing = false;
+  if (transcript.length) { saved = true; persist(); }
+  $("print-transcript").replaceChildren();
 });
 window.addEventListener("beforeunload", event => {
   if (transcript.length && !saved) {
@@ -306,6 +316,7 @@ $("chat-send").onsubmit = async (event) => {
       retry = null;
     if (e.status === 403 || e.status === 404) {
       session = null;
+      persist();
       chatVoice.setAnswer("", "");
       attachments = [];
       renderFiles();
@@ -323,7 +334,7 @@ $("chat-send").onsubmit = async (event) => {
 $("chat-clear").onclick = async () => {
   if (busy) return;
   if (transcript.length && !saved &&
-      !confirm("This conversation has not been downloaded. Clear it anyway?")) return;
+      !confirm("You may not have saved this conversation as a PDF. Clear it anyway?")) return;
   chatVoice.stop();
   try {
     if (session)
@@ -477,7 +488,7 @@ $("chat-file").onchange = async () => {
     retry = null;
   } catch (e) {
     if ([403, 404].includes(e.status)) {
-      session = null; accessToken = ""; attachments = [];
+      session = null; persist(); accessToken = ""; attachments = [];
       try { showMetadata(await request(`/api/public/bots/${botId}`)); } catch {}
     }
     report(e);

@@ -173,6 +173,12 @@ function readConfig() {
   readProfile();
   Object.assign(bot.config, {
     show_citations: $("show-citations").checked,
+    voice_enabled: $("voice-enabled").checked,
+    voice_listen: $("voice-listen").value,
+    voice_speak: $("voice-speak").value,
+    voice_persona: $("voice-persona").value,
+    voice_listen_provider: $("voice-listen-provider").value,
+    voice_speak_provider: $("voice-speak-provider").value,
     student_instructions: $("student-instructions").value,
     title: $("title").value,
     welcome: $("welcome").value,
@@ -289,6 +295,15 @@ function availableModels() {
   return [...new Set([...me.models, bot?.config?.model_preset, ...(e.models || []), e.judge_model])]
     .filter(key => key && (me.models.includes(key) || me.model_labels?.[key]));
 }
+// Grey out paid providers the host has not configured, so an author cannot pick one that cannot run.
+async function voiceProviders() {
+  try {
+    const { providers } = await api(`/bots/${bot.id}/voice`);
+    for (const [id, direction] of [["voice-listen-provider", "listen"], ["voice-speak-provider", "speak"]])
+      for (const opt of $(id).options)
+        opt.disabled = opt.value !== "default" && !providers[direction].includes(opt.value) && opt.value !== $(id).value;
+  } catch { /* the choices stay selectable; the server still rejects unavailable ones */ }
+}
 async function openBot(id) {
   if (dirty && !confirm("Leave this draft without saving your changes?"))
     return;
@@ -316,6 +331,13 @@ async function openBot(id) {
   availableModels().forEach((m) => option($("model"), m, me.model_labels?.[m] || m));
   $("model").value = bot.config.model_preset;
   $("show-citations").checked = bot.config.show_citations !== false;
+  $("voice-enabled").checked = bot.config.voice_enabled !== false;
+  $("voice-listen").value = bot.config.voice_listen || "browser";
+  $("voice-speak").value = bot.config.voice_speak || "browser";
+  $("voice-persona").value = bot.config.voice_persona || "neutral";
+  $("voice-listen-provider").value = bot.config.voice_listen_provider || "default";
+  $("voice-speak-provider").value = bot.config.voice_speak_provider || "default";
+  void voiceProviders();
   $("student-instructions").value = bot.config.student_instructions || "";
   $("instructor-notes").value = bot.instructor_notes || "";
   $("instructor-shared").checked = !!bot.instructor_shared;

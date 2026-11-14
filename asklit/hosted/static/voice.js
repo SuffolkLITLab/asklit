@@ -4,6 +4,56 @@
   else root.AskLitVoice = factory();
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
+  const FILE = '[\\w.\\-]+\\.(?:pdf|docx?|txt|md|pptx|xlsx|csv|html?|odt)';
+  const PAGE = '(?:\\s*,?\\s*(?:pages?|pp?\\.)\\s*\\d+(?:\\s*[-\\u2013]\\s*\\d+)?)?';
+  const LEAD =
+    '(?:(?:according to|based on|per|from|in|see|as (?:stated|described) in)\\s+(?:the\\s+)?(?:(?:document|file|source)\\s+)?)?';
+  const NUM = '#?\\d+(?:\\s*(?:,|and|&|-)\\s*#?\\d+)*';
+  const escapeRe = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /* The answer without source mentions, for read-aloud only. Keep in sync with spoken_text() in speech.py. */
+  function speakable(text, sources) {
+    let out = String(text || '');
+    const names = [
+      ...new Set(
+        (Array.isArray(sources) ? sources : [])
+          .map(s => s && s.filename)
+          .filter(Boolean)
+          .map(String)
+      ),
+    ].sort((a, b) => b.length - a.length);
+    for (const name of names)
+      out = out.replace(new RegExp(LEAD + escapeRe(name) + PAGE + '\\s*,?', 'gi'), ' ');
+    out = out
+      .replace(new RegExp(LEAD + FILE + PAGE + '\\s*,?', 'gi'), ' ')
+      .replace(/\((?:see\s+)?(?:sources?|pages?|pp?\.)[^)]*\)/gi, ' ')
+      .replace(/\[\s*\d+(?:\s*[,;\u2013-]\s*\d+)*\s*\]/g, ' ')
+      .replace(new RegExp(LEAD + '\\bsources?\\s*' + NUM + '\\s*,?', 'gi'), ' ')
+      .replace(/\(\s*[,;]?\s*\)/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .replace(/[,;:]+\s*([.!?])/g, '$1');
+    return out.trim();
+  }
+  /* Browsers expose no gender metadata, so a persona is matched by well-known voice names (best effort). */
+  const FEMININE = /\b(samantha|karen|moira|tessa|victoria|susan|zira|jenny|aria|hazel|fiona|allison|ava|nicky|female|woman)\b/i;
+  const MASCULINE = /\b(daniel|alex|fred|david|mark|guy|ryan|tom|oliver|aaron|arthur|rishi|male|man)\b/i;
+  function pickVoice(voices, lang, persona) {
+    const language = (lang || '').slice(0, 2).toLowerCase();
+    const pool = voices.filter(
+      (v) => v.lang === lang || v.lang?.slice(0, 2).toLowerCase() === language
+    );
+    const wanted = persona === 'feminine' ? FEMININE : persona === 'masculine' ? MASCULINE : null;
+    const best = (list) => list.find((v) => v.localService) || list[0];
+    if (wanted) {
+      const match = pool.filter((v) => wanted.test(v.name) && !(persona === 'masculine' && FEMININE.test(v.name)));
+      if (match.length) return best(match);
+    }
+    return (
+      voices.find((v) => v.localService && v.lang === lang) ||
+      voices.find((v) => v.lang === lang) ||
+      null
+    );
+  }
   function createVoiceController(options) {
     const env = options.env || window;
     let epoch = 0,
@@ -64,11 +114,17 @@
       stop();
       options.onError?.(message instanceof Error ? message.message : message);
     }
-    async function check(version) {
-      const policy =
-        config.mode === 'service' ? await options.getPolicy() : { paid: false };
+    /* Transcription (listen) and read-aloud (speak) choose Browser or Service independently. */
+    function modes(value) {
+      const base = value.mode || 'browser';
+      return { ...value, listenMode: value.listenMode || base, speakMode: value.speakMode || base };
+    }
+    async function check(version, direction) {
+      const service = (direction === 'speak' ? config.speakMode : config.listenMode) === 'service';
+      const policy = service ? await options.getPolicy() : {};
       if (version !== epoch || !active) return false;
-      if (config.mode === 'service' && !policy.paid)
+      const allowed = direction === 'speak' ? policy.paid_tts ?? policy.paid : policy.paid_stt ?? policy.paid;
+      if (service && !allowed)
         throw new Error(
           'Paid voice is unavailable for this organization. Select Browser.'
         );
@@ -219,7 +275,7 @@
         if (!heard) return fail('No speech was detected. Try again.');
         state('Transcribing…');
         try {
-          if (!(await check(version))) return;
+          if (!(await check(version, 'listen'))) return;
           const text = await options.transcribe(audio);
           if (version === epoch) await received(text, version);
         } catch (e) {
@@ -254,9 +310,9 @@
     async function listen(version) {
       if (version !== epoch || !active) return;
       try {
-        if (!(await check(version))) return;
+        if (!(await check(version, 'listen'))) return;
         releasePlayback();
-        if (config.mode === 'service') await serviceListen(version);
+        if (config.listenMode === 'service') await serviceListen(version);
         else browserListen(version);
       } catch (e) {
         if (version === epoch) fail(e);
@@ -264,7 +320,7 @@
     }
     async function start(value) {
       stop();
-      config = { mode: 'browser', loop: false, readReplies: true, ...value };
+      config = modes({ mode: 'browser', loop: false, readReplies: true, ...value });
       active = true;
       turns = 0;
       const version = epoch;
@@ -275,7 +331,8 @@
       }, 600000);
       await listen(version);
     }
-    async function reply(text) {
+    async function reply(rawText, sources) {
+      const text = speakable(rawText, sources);
       if (!active) return;
       const version = epoch;
       releaseCapture();
@@ -292,14 +349,14 @@
         );
       state('Speaking…');
       try {
-        if (!(await check(version))) return;
+        if (!(await check(version, 'speak'))) return;
         playbackTimer = setTimeout(
           () => {
             if (version === epoch) fail('Speech playback timed out.');
           },
           Math.max(120000, text.length * 100)
         );
-        if (config.mode === 'service') {
+        if (config.speakMode === 'service') {
           const blob = await options.synthesize(text);
           if (version !== epoch || !active) return;
           audioUrl = env.URL.createObjectURL(blob);
@@ -323,11 +380,11 @@
             if (index >= chunks.length) return complete();
             const utterance = new env.SpeechSynthesisUtterance(chunks[index++]);
             utterance.lang = config.lang || env.navigator.language || 'en-US';
-            const voices = env.speechSynthesis.getVoices();
-            utterance.voice =
-              voices.find((v) => v.localService && v.lang === utterance.lang) ||
-              voices.find((v) => v.lang === utterance.lang) ||
-              null;
+            utterance.voice = pickVoice(
+              env.speechSynthesis.getVoices(),
+              utterance.lang,
+              config.persona
+            );
             utterance.onend = next;
             utterance.onerror = () => {
               if (version === epoch) fail('Read-aloud stopped. Try again.');
@@ -340,11 +397,11 @@
         if (version === epoch) fail(e);
       }
     }
-    async function read(text, value) {
+    async function read(text, value, sources) {
       stop();
-      config = { mode: 'browser', ...value, readReplies: true, loop: false };
+      config = modes({ mode: 'browser', ...value, readReplies: true, loop: false });
       active = true;
-      await reply(text);
+      await reply(text, sources);
     }
     const hidden = () => {
       if (env.document?.hidden) stop();
@@ -370,5 +427,5 @@
       },
     };
   }
-  return { createVoiceController };
+  return { createVoiceController, speakable, pickVoice };
 });

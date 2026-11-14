@@ -114,9 +114,10 @@
   </div>
   <p id="preview-voice-hint" class="muted">Speak naturally. Messages send automatically, and the microphone listens again after each reply. Use Stop voice to end.</p>
   <details><summary>Voice options</summary>
-    <label>Speech<select id="preview-voice-mode"><option value="browser">Browser</option><option value="service" disabled>Paid service</option></select></label>
+    <label>Transcribe my speech<select id="preview-voice-listen"><option value="browser">Browser</option><option value="service" disabled>Paid service</option></select></label>
+    <label>Read replies aloud<select id="preview-voice-speak"><option value="browser">Browser</option><option value="service" disabled>Paid service (AI voice)</option></select></label>
     <label class="choice"><input id="preview-voice-loop" type="checkbox" checked><span>Send automatically when I finish speaking</span></label>
-    <label class="choice"><input id="preview-voice-read" type="checkbox" checked><span>Read replies aloud</span></label>
+    <label class="choice"><input id="preview-voice-read" type="checkbox" checked><span>Read replies aloud automatically</span></label>
     <label>Language<select id="preview-voice-lang"><option value="">Browser language</option><option value="en-US">English</option><option value="es-US">Español</option><option value="pt-BR">Português</option><option value="fr-FR">Français</option><option value="zh-CN">中文</option><option value="ar-SA">العربية</option></select></label>
   </details>
   <p class="muted voice-notice">Speech may be processed by your browser’s or organization’s provider. Replies use a computer-generated voice.</p>
@@ -150,6 +151,15 @@
       <label>Student instructions<textarea id="student-instructions" rows="8" maxlength="30000" placeholder="Describe the exercise, the student’s role, and what to do before starting."></textarea></label>
       <label class="choice"><input id="show-citations" type="checkbox" checked><span>Show citations and reference excerpts to participants</span></label>
       <p class="muted">Hiding citations removes reference excerpts from chat responses. The model can still use or paraphrase knowledge-base content.</p>
+      <fieldset class="voice-settings"><legend>Voice for participants</legend>
+        <label class="choice"><input id="voice-enabled" type="checkbox" checked><span>Offer voice (dictation and read-aloud)</span></label>
+        <label>Transcribe participants’ speech with<select id="voice-listen"><option value="browser">Browser (free)</option><option value="service">Paid service</option></select></label>
+        <label>Read replies aloud with<select id="voice-speak"><option value="browser">Browser (free)</option><option value="service">Paid service (AI voice)</option></select></label>
+        <label>Paid transcription provider<select id="voice-listen-provider"><option value="default">Organization default</option><option value="openai">OpenAI</option><option value="aws">Amazon Transcribe</option></select></label>
+        <label>Paid voice provider<select id="voice-speak-provider"><option value="default">Organization default</option><option value="openai">OpenAI (more expressive)</option><option value="aws">Amazon Polly (neural)</option></select></label>
+        <label>Voice<select id="voice-persona"><option value="neutral">Neutral / default</option><option value="feminine">Feminine</option><option value="masculine">Masculine</option></select></label>
+        <p class="muted">Participants are never required to use voice and cannot change these choices. Browser voice is free and needs no setup. Paid service needs your organization’s administrator to enable paid voice, and counts against the monthly AI budget; it applies only if you choose it here. OpenAI and Amazon Polly neural cost about the same per spoken minute; OpenAI is usually more natural and expressive. Providers your host has not configured are unavailable. Browser voices follow the participant’s device, so the feminine/masculine choice is matched by voice name and is best effort there; the paid AI voices follow it exactly. Changes reach participants when you publish.</p>
+      </fieldset>
       <details><summary>Instructor notes</summary><label>Private notes<textarea id="instructor-notes" rows="8" maxlength="30000"></textarea></label><label class="choice"><input id="instructor-shared" type="checkbox"><span>Let instructors view these notes with a separate password</span></label><label>Set or replace instructor password<input id="instructor-password" type="password" minlength="12" maxlength="200" autocomplete="new-password" placeholder="Leave blank to keep the existing password"></label><p class="muted">Notes are saved immediately with Save, separately from the published exercise. They are never sent to the model or included in workspace or Streamlit exports. Use at least 12 characters. Anyone with this password can read the notes.</p></details>
       <label>Opening message<textarea id="welcome" rows="3" maxlength="2000"></textarea></label>
       <label>Model<select id="model"></select></label>

@@ -415,6 +415,62 @@ Then an organization administrator can enable paid voice in organization setting
 and set its daily speech-request allowance. Users explicitly select Service in
 the voice controls; browser failures never automatically incur paid speech costs.
 
+### Instructor voice controls
+
+Each AskLit has a **Voice for participants** section (Studio → Assistant). Instructors
+can switch voice off, choose Browser or Paid service separately for transcription and
+read-aloud, and pick a voice persona (neutral, feminine, masculine). Participants
+never see these choices, are never required to use voice, and cannot override them:
+the paid endpoints reject any call the instructor did not choose, so calling the API
+directly does not bypass the setting. Settings are read from the published version.
+
+Browser voice is free and needs no opt-in, so it is on by default. Paid voice applies
+only when the instructor chooses Paid service *and* the organization administrator
+has enabled paid voice. The persona picks a provider voice: OpenAI `nova`/`echo`
+(`ASKLIT_SPEECH_VOICE_FEMININE`/`_MASCULINE`) and Polly `Joanna`/`Matthew`
+(`ASKLIT_SPEECH_AWS_VOICE_FEMININE`/`_MASCULINE`); neutral keeps the operator default.
+Browsers expose no voice gender, so there the persona is matched by well-known voice
+names, best effort.
+
+### Mixing providers (browser, AWS, OpenAI)
+
+Transcription and read-aloud are independent. On the page, **Transcribe my speech**
+and **Read replies aloud** each choose Browser or Paid service, so a user can
+dictate with the browser and hear an AI voice. On the server,
+`ASKLIT_SPEECH_STT_PROVIDER` and `ASKLIT_SPEECH_TTS_PROVIDER` (each `aws` or
+`compatible`) override `ASKLIT_SPEECH_PROVIDER` per direction. The voice policy
+reports `paid_stt` and `paid_tts` separately (`paid` means both).
+
+`compatible` speaks the OpenAI HTTP API (`/audio/transcriptions`, `/audio/speech`):
+set `ASKLIT_SPEECH_API_KEY`, `ASKLIT_SPEECH_BASE_URL` (default
+`https://api.openai.com/v1`), `ASKLIT_SPEECH_TTS_MODEL` (e.g. `gpt-4o-mini-tts`,
+`tts-1`) and/or `ASKLIT_SPEECH_STT_MODEL`, plus `ASKLIT_SPEECH_VOICE` (default
+`alloy`). Like AWS speech it is metered in USD against the monthly budget, using
+conservative rates `ASKLIT_SPEECH_COMPAT_TTS_USD_PER_MILLION_CHARS` (default $30;
+`gpt-4o-mini-tts` is roughly $17) and `ASKLIT_SPEECH_COMPAT_STT_USD_PER_MINUTE`
+(default $0.006). Lower them to your provider's real prices to meter tightly.
+`ASKLIT_SPEECH_AWS_VOICE` (default `Joanna`) is the Polly voice.
+
+### AWS speech (Amazon Polly + Transcribe)
+
+Bedrock has no speech-to-text or text-to-speech endpoints, so the AWS provider uses
+Amazon Transcribe streaming and Amazon Polly with the service's existing AWS
+credentials (no speech API key). Set `ASKLIT_SPEECH_PROVIDER=aws`; optional
+`ASKLIT_SPEECH_REGION` (default `us-east-1`), `ASKLIT_SPEECH_LANGUAGE` (`en-US`),
+`ASKLIT_SPEECH_AWS_VOICE` (a Polly voice id, e.g. `Joanna`), and
+`ASKLIT_SPEECH_AWS_ENGINE` (`neural` or `standard`). The runtime IAM user needs
+`transcribe:StartStreamTranscription` and `polly:SynthesizeSpeech`.
+
+Unlike the HTTP adapter, AWS speech is metered in dollars and counts against
+`ASKLIT_MONTHLY_AI_BUDGET_USD`. Cost is known before the call: Polly bills per input
+character (`ASKLIT_SPEECH_TTS_USD_PER_MILLION_CHARS`, default $16 neural) and
+Transcribe streaming per second of audio with a 15-second minimum per request
+(`ASKLIT_SPEECH_STT_USD_PER_MINUTE`, default $0.024). Each call writes a usage event
+(`speech-transcribe` / `speech-speak`) and reserves its cost atomically under the
+same monthly lock as chat; failed or interrupted calls keep their reservation.
+Rates are list prices; reconcile with the AWS invoice and update them if AWS
+changes pricing.
+
 Each transcription and synthesis counts separately, including provider failures.
 The host allowance defaults to 1,000 requests/day, each organization to 100, each
 conversation to 24, each preview author to 60, and each IP to 30. Counters use the

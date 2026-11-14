@@ -232,8 +232,8 @@ pricing. Known cost replaces the reservation when the call completes. Unknown
 cost, failed calls, and interrupted calls retain their reservation. Historical
 unknown-cost events without reservations count as $1 each. Concurrent workers
 cannot reserve the same remaining balance. Models without positive finite token
-rates are blocked. Paid speech is disabled while this budget is enabled because
-speech has no dollar ledger yet; browser speech is unaffected.
+rates are blocked. Paid speech (AWS Polly/Transcribe and the OpenAI-compatible adapter) is metered
+in dollars against this budget. Browser speech is unaffected.
 
 This is an application spending gate based on estimates, not a guaranteed cap on
 the AWS invoice. It excludes Fly/Supabase charges, taxes, direct AWS calls outside

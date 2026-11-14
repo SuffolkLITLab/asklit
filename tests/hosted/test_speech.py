@@ -20,7 +20,7 @@ def recording(seconds=1, rate=16000, channels=1):
     return out.getvalue()
 
 
-def setup(hosted, paid=False, limit=100, voice=("service", "service", "neutral")):
+def setup(hosted, paid=False, limit=100, voice=("service", "service", "neutral"), providers=("default", "default")):
     """voice=None leaves the instructor's voice settings at their defaults (off)."""
     settings, store = hosted[:2]
     settings.speech_api_key = "test-only-key"
@@ -30,7 +30,8 @@ def setup(hosted, paid=False, limit=100, voice=("service", "service", "neutral")
     if voice:
         listen, speak, persona = voice
         saved = hosted[4]("alice").put(f"/api/bots/{bot['id']}", json={"version": bot["version"], "config": {
-            **bot["config"], "voice_enabled": True, "voice_listen": listen, "voice_speak": speak, "voice_persona": persona}})
+            **bot["config"], "voice_enabled": True, "voice_listen": listen, "voice_speak": speak, "voice_persona": persona,
+            "voice_listen_provider": providers[0], "voice_speak_provider": providers[1]}})
         assert saved.status_code == 200, saved.text
         bot = saved.json()
     publish(hosted, bot)
@@ -352,3 +353,39 @@ def test_author_preview_ignores_the_published_lock_but_uses_the_draft_persona(ho
     bot, _, _ = setup(hosted, paid=True, voice=("browser", "browser", "masculine"))
     policy = hosted[3].get(f"/api/bots/{bot['id']}/voice").json()
     assert policy["persona"] == "masculine" and "locked" not in policy
+
+
+def test_author_chooses_openai_or_polly_per_direction(hosted, monkeypatch):
+    from asklit.hosted.models import UsageEvent
+    hosted[0].speech_provider = "compatible"  # operator default: OpenAI-style
+    _, conv, headers = setup(hosted, paid=True, voice=("service", "service", "neutral"), providers=("aws", "aws"))
+    seen = []
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda s, k, v: seen.append((k, s.speech_stt_provider, s.speech_tts_provider)) or ({"text": "Hi"} if k == "transcribe" else b"ID3"))
+    assert transcribe(hosted, conv, headers, recording(2)).status_code == 200
+    path = f"/api/public/conversations/{conv['id']}"
+    hosted[3].post(path + "/messages", headers=headers, json={"message": "Q", "request_id": "r"})
+    assert hosted[3].post(path + "/speech", headers=headers, json={"request_id": "r"}).status_code == 200
+    assert seen == [("transcribe", "aws", ""), ("speak", "", "aws")] or all("aws" in row for row in seen)
+    with hosted[1].transaction() as db:
+        presets = {e.purpose: e.preset for e in db.scalars(select(UsageEvent).where(UsageEvent.purpose.like("speech-%")))}
+    assert presets == {"speech-transcribe": "aws-transcribe", "speech-speak": "aws-polly"}
+
+
+def test_an_unconfigured_provider_choice_fails_safe(hosted, monkeypatch):
+    hosted[0].speech_provider = "aws"
+    _, conv, headers = setup(hosted, paid=True, voice=("service", "service", "neutral"), providers=("openai", "openai"))
+    hosted[0].speech_api_key = ""  # operator never set up OpenAI
+    monkeypatch.setattr("asklit.hosted.speech.provider_request", lambda *a: pytest.fail("provider is not configured"))
+    assert transcribe(hosted, conv, headers).status_code == 503
+    policy = hosted[3].get(f"/api/public/conversations/{conv['id']}/voice", headers=headers).json()
+    assert policy["paid_stt"] is False and policy["speak_mode"] == "browser"
+
+
+def test_preview_policy_lists_the_providers_an_author_can_pick(hosted):
+    hosted[0].speech_provider = "aws"
+    bot, _, _ = setup(hosted, paid=True)
+    hosted[0].speech_api_key = ""  # setup() configures an OpenAI-style key; remove it
+    providers = hosted[3].get(f"/api/bots/{bot['id']}/voice").json()["providers"]
+    assert providers == {"listen": ["aws"], "speak": ["aws"]}  # no OpenAI key configured
+    hosted[0].speech_api_key, hosted[0].speech_tts_model, hosted[0].speech_stt_model = "k", "m", "m"
+    assert hosted[3].get(f"/api/bots/{bot['id']}/voice").json()["providers"] == {"listen": ["openai", "aws"], "speak": ["openai", "aws"]}

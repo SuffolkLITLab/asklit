@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from .access import ensure_links, hash_password, password_lookup, public_path
 from .models import BotAlias, Organization, OrganizationAlias, PasswordKey
 from .schemas import BotSharing, NewPassword, OrganizationSharing, PasswordState
-from .speech import voice_policy, speech_configured, bot_voice_rules
+from .speech import voice_policy, speech_configured, bot_voice_rules, available_providers, with_providers
 from .security import accessible_bot, audit, login_session, membership
 
 
@@ -114,8 +114,9 @@ def sharing_router(settings, store):
             session = login_session(db, request)
             bot = accessible_bot(db, bot_id, session.user_id)
             # Authors can try every option; the draft persona shows how participants will hear it.
-            return {**voice_policy(db.get(Organization, bot.org_id), settings),
-                    "persona": bot_voice_rules(db, bot, published=False)["persona"]}
+            rules = bot_voice_rules(db, bot, published=False)
+            return {**voice_policy(db.get(Organization, bot.org_id), with_providers(settings, rules)),
+                    "persona": rules["persona"], "providers": available_providers(settings)}
 
     @router.put("/bots/{bot_id}/sharing")
     def put_bot(bot_id: str, body: BotSharing, request: Request):

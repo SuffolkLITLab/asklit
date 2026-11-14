@@ -52,6 +52,9 @@ class BotConfig(Strict):
     voice_listen: Literal["browser", "service"] = "browser"
     voice_speak: Literal["browser", "service"] = "browser"
     voice_persona: Literal["neutral", "feminine", "masculine"] = "neutral"
+    # Which paid provider serves this AskLit; "default" follows the operator's configuration.
+    voice_listen_provider: Literal["default", "openai", "aws"] = "default"
+    voice_speak_provider: Literal["default", "openai", "aws"] = "default"
     student_instructions: str = Field(default="", max_length=30000)
     uploads_enabled: bool = False
     upload_prompt: str = Field(default="", max_length=4000)

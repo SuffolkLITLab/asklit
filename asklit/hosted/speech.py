@@ -129,7 +129,32 @@ def instructor_voice(config):
     """What the instructor chose for this AskLit. Voice is on by default with free browser modes; paid voice needs the instructor to choose Service."""
     config = config or {}
     return {"enabled": config.get("voice_enabled", True), "listen": config.get("voice_listen", "browser"),
-            "speak": config.get("voice_speak", "browser"), "persona": config.get("voice_persona", "neutral")}
+            "speak": config.get("voice_speak", "browser"), "persona": config.get("voice_persona", "neutral"),
+            "listen_provider": config.get("voice_listen_provider", "default"),
+            "speak_provider": config.get("voice_speak_provider", "default")}
+
+
+PROVIDER_NAMES = {"openai": "compatible", "aws": "aws"}
+
+
+def with_providers(settings, rules):
+    """Apply the instructor's provider choice for each direction; 'default' keeps the operator's."""
+    changes = {}
+    if PROVIDER_NAMES.get(rules.get("listen_provider")):
+        changes["speech_stt_provider"] = PROVIDER_NAMES[rules["listen_provider"]]
+    if PROVIDER_NAMES.get(rules.get("speak_provider")):
+        changes["speech_tts_provider"] = PROVIDER_NAMES[rules["speak_provider"]]
+    return replace(settings, **changes) if changes else settings
+
+
+def available_providers(settings):
+    """Providers an author may pick for each direction, given what the operator has configured."""
+    out = {}
+    for direction, kind in (("listen", "transcribe"), ("speak", "speak")):
+        field = "speech_stt_provider" if kind == "transcribe" else "speech_tts_provider"
+        out[direction] = [name for name, impl in PROVIDER_NAMES.items()
+                          if kind_configured(replace(settings, **{field: impl}), kind)]
+    return out
 
 
 def bot_voice_rules(db, bot, published=True):
@@ -139,6 +164,7 @@ def bot_voice_rules(db, bot, published=True):
 
 
 def voice_policy(org, settings, rules=None):
+    settings = with_providers(settings, rules) if rules is not None else settings
     enabled = bool(org.paid_voice_enabled)
     stt, tts = enabled and kind_configured(settings, "transcribe"), enabled and kind_configured(settings, "speak")
     # `paid` (both directions) stays for clients that only know the combined Service mode.
@@ -312,8 +338,9 @@ def run_paid(store, settings, request, authorize, kind, value):
         with store.transaction() as db:
             org_id, subject, conv, bot = authorize(db)
             org = db.scalar(select(Organization).where(Organization.id == org_id).with_for_update())
-            check_paid(org, settings, kind)
             rules = bot_voice_rules(db, bot, published=conv is not None)
+            settings = with_providers(settings, rules)  # the author's provider choice, if any
+            check_paid(org, settings, kind)
             if conv is not None and (not rules["enabled"] or rules["listen" if kind == "transcribe" else "speak"] != "service"):
                 raise HTTPException(403, "Your instructor has not enabled paid voice for this AskLit. Use browser voice.")
             settings = persona_settings(settings, rules["persona"]) if kind == "speak" else settings
